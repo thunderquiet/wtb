@@ -9,9 +9,10 @@ const app = express()
 const port = 3000
 
 app.get('/', (req, res) => {
-	// let r = wtb_app.dashboard( null, null, (r)=>{ res.send( r ) } );
+	// TODO - get this to actually render in browser!
+	let r = wtb_app.dashboard( null, null, (a, r)=>{ /*console.log(r);*/  res.send( r ) } );
 	// let r = wtb_app.get_whale_buckets( null, null, (r)=>{ res.send( r ) } );
-	let r = wtb_app.dashboard( null, null, res.send );
+	// let r = wtb_app.dashboard( null, null, res.send );
 
 })	
 
@@ -19,5 +20,6 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`listening at http://localhost:${port}`)
 })
+
 
 

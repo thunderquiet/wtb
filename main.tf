@@ -111,6 +111,8 @@ resource "aws_api_gateway_method" "proxy" {
    http_method   = "ANY"
    authorization = "NONE"
 }
+
+// deploying each end-point at the gateway level is very painful - instead we use a single entry point we split internally 
 resource "aws_api_gateway_integration" "lambda" {
    rest_api_id = aws_api_gateway_rest_api.wtb_api.id
    resource_id = aws_api_gateway_method.proxy.resource_id
@@ -145,30 +147,6 @@ resource "aws_api_gateway_deployment" "wtb_api_deploy" {
    rest_api_id = aws_api_gateway_rest_api.wtb_api.id
    stage_name  = "test"
 }
-
-
-/*
-
-resource "aws_api_gateway_integration" "lambda_get_whale_buckets" {
-   rest_api_id = aws_api_gateway_rest_api.wtb_api.id
-   resource_id = aws_api_gateway_method.proxy.resource_id
-   http_method = aws_api_gateway_method.proxy.http_method
-
-   integration_http_method = "POST"
-   type                    = "AWS_PROXY"
-   uri                     = aws_lambda_function.get_whale_buckets.invoke_arn
-}
-
-// resource "aws_api_gateway_deployment" "wtb_deploy_whale_buckets" {
-//    depends_on = [
-//      aws_api_gateway_integration.lambda_get_whale_buckets
-//    ]
-
-//    rest_api_id = aws_api_gateway_rest_api.wtb_api.id
-//    stage_name  = "get_whale_buckets"
-// }
-
-*/
 
 
 resource "aws_iam_policy_attachment" "api_gateway_logs" {

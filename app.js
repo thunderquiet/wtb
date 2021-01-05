@@ -42,7 +42,13 @@ const superagent = require('superagent');
 // 	// return response;
 // }
 
+// single entry point from tha gateway API to reduce amoount of boiler-plate code in terraform files
 exports.dashboard = function (event, context, callback) {
+
+	// take in args for what cmd to run
+	//  one for returning the buckets
+	//  one for returning the html template
+
   var response = {
     statusCode: 200,
     headers: {
@@ -51,24 +57,12 @@ exports.dashboard = function (event, context, callback) {
     body: '<p>Hello world!</p>',
   }
 
-  // maye the lack of html in logs is expected but why the error on page fetch??????!!!!!!!!!?????
-  callback(null, response)
-}
-
-exports.handler = function (event, context, callback) {
-  var response = {
-    statusCode: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-    },
-    body: '<p>Bonjour au monde!</p>',
-  }
   callback(null, response)
 }
 
 
 // second end-point to fetch bucket data
-exports.get_whale_buckets = function(event, context, callback) {
+let get_whale_buckets = function(event, context, callback) {
     let alert_api = new WhaleAlertApi();
     alert_api.get_data( (data) => {
     	console.log( "here3" );
