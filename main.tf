@@ -80,22 +80,19 @@ resource "aws_lambda_layer_version" "deps_layer" {
     compatible_runtimes = ["nodejs12.x"]
     source_code_hash = "${base64sha256(filebase64("dep_layer.zip"))}"
 }
+resource "aws_lambda_layer_version" "static_layer" {
+    layer_name = "static_layer"
+    filename = "static_layer.zip"
+    compatible_runtimes = ["nodejs12.x"]
+    source_code_hash = "${base64sha256(filebase64("static_layer.zip"))}"
+}
 resource "aws_lambda_function" "dashboard" {
     function_name = "dashboard"
     handler = "app.dashboard"
     runtime = "nodejs12.x"
     filename = "function.zip"
     source_code_hash = "${base64sha256(filebase64("function.zip"))}"
-    layers = [aws_lambda_layer_version.deps_layer.arn]
-	role = "${aws_iam_role.lambda_role.arn}"
-}
-resource "aws_lambda_function" "get_whale_buckets" {
-    function_name = "get_whale_buckets"
-    handler = "app.get_whale_buckets"
-    runtime = "nodejs12.x"
-    filename = "function.zip"
-    source_code_hash = "${base64sha256(filebase64("function.zip"))}"
-    layers = [aws_lambda_layer_version.deps_layer.arn]
+    layers = [aws_lambda_layer_version.deps_layer.arn, aws_lambda_layer_version.static_layer.arn]
 	role = "${aws_iam_role.lambda_role.arn}"
 }
 

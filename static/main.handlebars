@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang=pl>
+<head>
+  <meta charset=utf-8>
+  <title>Whale Trade Bot</title>
+
+  <script
+        src="https://code.jquery.com/jquery-3.5.1.min.js"
+        integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0="
+        crossorigin="anonymous"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.js"></script>
+
+
+<!--   <script>
+    var context = {title: "My New Post", body: "This is my first post!"}
+    var result = Handlebars.templates.person(context);
+
+    $(function() {
+      $("#entry-template").html(result);
+    });
+  </script> -->
+
+  <script type="text/javascript">
+    dashboard_data = { sum:null, ticks:[] };
+
+    // our entry point
+    $( document ).ready( () => {
+        console.log( "document loaded" );
+
+        fetch_data();
+
+        // let limit = 3;
+        // let count = 0;
+        // while( count < limit && ( !dashboard_data.sum || dashboard_data.sum.api_count == 100)  )
+        // {
+        //   count++;
+        // }
+
+    });
+
+    function fetch_data(  )
+    {
+      let url = '?cmd=get_whale_buckets';
+      // console.log( "dashboard state:", dashboard_data.sum);
+      if( dashboard_data.sum ) url += "&cursor=" + dashboard_data.sum.api_cursor;
+      fetch( url )
+        .then(response => response.json())
+        .then(data => {
+          // console.log(data)
+          concord_front( data );
+          if( dashboard_data.sum.api_count == 100 )
+            setTimeout( fetch_data, 6000); // we wait a few seconds between calls - rate limit of 10 per min!
+        });
+    }
+
+    function concord_front( data )
+    {
+      dashboard_data.ticks.push( data );
+      let d = dashboard_data.sum;
+      if( ! d )
+      {
+        d = data;
+        d.api_count_total = data.api_count;
+      }
+      else
+      {
+        console.log( "concording data" );
+        // use the latest data segment to update our summary DS
+        d.inflow += data.inflow;
+        d.outflow += data.outflow;
+        d.intraflow += data.intraflow;
+
+        d.api_cursor = data.api_cursor;
+        d.api_count = data.api_count;
+        d.api_count_total += data.api_count;
+        
+        // charts data was created in the same loop as buckets, so we should be able to concord both in the same loop
+        data.sorted_totals.forEach( (item, index) => {
+          let key_index = key_in_obj(item.bucket, d.sorted_totals, "bucket" );
+          if( key_index < 0 )
+          {
+            d.sorted_totals.push( item );
+            d.chart_data.push( data.chart_data[index] );
+          }
+          else
+          {
+            item.totals.forEach((target_item, target_index) => {
+              let target_key_index = key_in_obj(target_item.target, d.sorted_totals[ key_index ], "target" );
+              if( target_key_index < 0 )
+              {
+                d.sorted_totals[ key_index ].push( target_item );
+                d.chart_data[ key_index ].x.push( data.chart_data[index].x[target_index] );
+                d.chart_data[ key_index ].y.push( data.chart_data[index].y[target_index] );
+              }
+              else
+              {
+                d.sorted_totals[ key_index ][ "amount" ] += target_item.amount;
+                d.chart_data[ key_index ].y[target_index] += data.chart_data[index].y[target_index]; 
+              }
+            });
+          }
+
+        });
+
+      }
+
+      console.log( d );
+      dashboard_data.sum = d;
+
+      // keeping the template and the rendered html seperate lets us be able to rerender the element later on      
+      render( dashboard_data.sum, '#tp-bucket-list', '#buckets-table' );
+      render( dashboard_data.sum, '#tp-flow-stats', '#flow-stats' );
+
+      Plotly.newPlot('buckets-chart', dashboard_data.sum.chart_data, {barmode: 'group'} );
+    }
+
+    function key_in_obj( key, sorted_totals, obj_attribute_name )
+    {
+      sorted_totals.forEach( (item, index) => {
+        if( item[obj_attribute_name] == key )
+          return index; //what if this is the 0th entry???
+      });
+      return -1;
+    }
+
+    function render( data, template_id, target_id )
+    {
+      Handlebars.registerHelper('format_number', function(value) {
+          // return value.toString().replace(/(\d)(?=(\d\d\d)+(?!\d))/g, "$1,");
+          return (value).toLocaleString('en-EN', {maximumSignificantDigits:3, maximumFractionDigits: 0} );
+      });
+
+      if( ! target_id ) target_id = template_id;
+      var template = $(template_id).html();
+      var renderer = Handlebars.compile(template);
+      let rendered = renderer( data );
+      $(target_id).html( rendered );
+
+    }
+
+
+
+
+  </script>
+
+</head>
+<body>
+
+
+<div id="buckets-chart"></div>
+
+<div id="flow-stats" >
+</div>
+
+<br/>
+
+<div id="buckets-table"></div>
+
+
+
+<!-- Templates for client-side rendering-->
+<template id="tp-flow-stats" >
+  Total Inflow: {{format_number inflow }} | 
+  Outflow: {{format_number outflow }} | 
+  Intraflow: {{format_number intraflow }}
+</template>
+
+<template id="tp-bucket-list">
+  {{#each sorted_totals}}
+    <div class="exchange">
+      <h4>{{ this.bucket }}</h4>
+      {{#each this.totals }}
+        <div>{{ this.target }} : {{ this.amount }}</div>
+      {{/each}}
+    </div>
+  {{/each}}
+</template>
+
+
+
+</body>
+</html>

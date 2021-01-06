@@ -1,81 +1,121 @@
 
 'use strict'
 
+const handlebars = require('handlebars');
 const superagent = require('superagent');
-
+const fs = require('fs');
 
 //  design:
 // dashboard panel with columns
 // func to call whale API to get some data
 // func to bucket the data and flush to disk?
 
-// exports.dashboard = function(event, context, callback) {
-//     console.log('Event: ', JSON.stringify(event, null, '\t'));
-//     console.log('Context: ', JSON.stringify(context, null, '\t'));
+let RUNTIME_ENV = "DEV";
 
-//     let alert_api = new WhaleAlertApi();
-//     console.log( "here1" );
-//     alert_api.get_data( (data) => {
-//     	console.log( "here3" );
-//     	alert_api.bucket_data( data, (buckets) => {
-// 			console.log( "here4" );
-// 			var response = {
-// 			    statusCode: 200,
-// 			    body: buckets ,
-// 			  }
-// 			callback(response);
-//     	});
-//    	});
-
-//    	console.log( "here5" );
-
-//     // setup pug template and a second api call to fetch bucket data for rendering!!!!!!!!
-
-// 	var response = {
-// 	    statusCode: 200,
-// 	    headers: {
-// 	      'Content-Type': 'text/html; charset=utf-8',
-// 	    },
-// 	    body: '<p>Hello world 2!</p>',
-// 	  }
-// 	callback(null, response);
-// 	// return response;
-// }
+// TODO - move to external config file?
+let config = {
+	"STATIC_CONTENT_PATH": {"DEV": "./", "PROD": "/opt/"}
+}
 
 // single entry point from tha gateway API to reduce amoount of boiler-plate code in terraform files
-exports.dashboard = function (event, context, callback) {
-
+exports.dashboard = function (event, context, callback)
+{
 	// take in args for what cmd to run
 	//  one for returning the buckets
 	//  one for returning the html template
 
+    console.log('Event: ', JSON.stringify(event, null, '\t'));
+    console.log('Context: ', JSON.stringify(context, null, '\t'));
+
+
+    // we check for AWS_LAMBDA_FUNCTION_NAME env var to see if we are running inside lambda or somewhere else
+    if ('AWS_LAMBDA_FUNCTION_NAME' in process.env)
+    	RUNTIME_ENV = "PROD";
+
+    let cmd = event.queryStringParameters.cmd;
+	let func = null;
+    switch ( cmd ) {
+    	case 'get_page':
+    		func = get_page;
+    		break;
+    	case 'get_front':
+    		func = get_front;
+    		break;
+    	case 'get_whale_buckets':
+    		func = get_whale_buckets;
+    		break;
+    	default:
+    		console.log( "Command not recognized!", event.queryStringParameters );
+    		break;
+	}
+  
+  let res = (data) => { callback(null, data); };
+  func(event.queryStringParameters, res );
+}
+
+// serve static files using the same dashbord switch cmd trick (likely more expensive long-term!)!!!!!!
+// get the poly chart draph and render it!!!! + real-time-ish updates
+// dynamo db to save whale results
+
+
+// how to know if we should look localy or in opt?????
+function get_page( params, callback )
+{
+	fs.readFile( config.STATIC_CONTENT_PATH[RUNTIME_ENV] + 'static/main.handlebars', "utf8", (err, source) => {
+	    if (err) throw err;
+		// var template = handlebars.compile(source);
+		// var html = template( {foobar:"my foo"} );
+		var html = source; // we will render everything client-side instead
+
+		var response = {
+			statusCode: 200,
+			headers: {
+			  'Content-Type': 'text/html; charset=utf-8'
+			},
+			body: html,
+		}
+		return callback(response);
+	});
+}
+
+function get_front( params, callback )
+{
   var response = {
     statusCode: 200,
     headers: {
-      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Type': 'text/html; charset=utf-8'
     },
     body: '<p>Hello world!</p>',
   }
-
-  callback(null, response)
+  return callback(response);
 }
 
 
+
+
 // second end-point to fetch bucket data
-let get_whale_buckets = function(event, context, callback) {
+function get_whale_buckets( params, callback )
+{
+	console.log( params );
+	var response = {
+	    statusCode: 200,
+	    headers: {
+	      'Content-Type': 'text/html; charset=utf-8'
+	    },
+	    body: '<p>Hello world!</p>',
+	  }
+
     let alert_api = new WhaleAlertApi();
-    alert_api.get_data( (data) => {
-    	console.log( "here3" );
+    alert_api.get_data( params, ( data) => {
     	alert_api.bucket_data( data, (buckets) => {
-			console.log( "here4" );
 			var response = {
 			    statusCode: 200,
-			    body: buckets ,
+			    headers: {'Content-Type': 'application/json'},
+			    body: JSON.stringify( buckets ),
 			  }
-			callback(response);
+			return callback(response);
     	});
    	});
-
 }
 
 
@@ -92,40 +132,68 @@ class WhaleAlertApi
 
 	}
 
-	get_data( callback_func )
+	// for now can we just setup a proxy???????!!!
+
+	get_data( params, callback_func )
 	{
-		console.log( "here2" );
         // const fetch_params = { method: 'GET', mode: 'cors' };
-		let start_timestamp = Math.floor(Date.now()/1000) - 3540 ; // last 10min
+		let start_timestamp = Math.floor(Date.now()/1000) - 3540 ; // last 59min
 		let url = "https://api.whale-alert.io/v1/transactions?";
         console.log( "start:", start_timestamp );
 
-        // superagent.get( url ).then(console.log).catch(console.error);
 
-        console.log( "here22" );
+        // superagent.get( "https://example.com" ).then( data => { console.log(data) } );
+        // https://api.whale-alert.io/v1/transactions?api_key=oCAcALPSl98tCbEnzMuq2n0gwbYPClZy&start=1609806534
 
-        // // invoke error calling the lib?????!!??? -? how to test????
-        // superagent.get( url )
-        // .query( { "api_key": this.api_key, "start": start_timestamp } )
-        // .catch(console.error);
-        // .then( data => { console.log( "here2.1" ); callback_func( data ) } )
-        // .end( (err, res) => {
-        //     if (err) {
-        //         console.log ( err );
-        //         throw new TypeError(err.statusText);
-        //     }
-        // });
+        let query = { "api_key": this.api_key, "start": start_timestamp };
+        if( "cursor" in params )
+        	query["cursor"] = params.cursor;
 
-        // superagent.get(url).query( { "api_key": this.api_key, "start": start_timestamp } ).then(console.log).catch(console.error);
+        // let m_url = url + "api_key="+this.api_key+"&start="+start_timestamp; 
+        // we are going to roll our own proxy in php - like 5 lines of code :D - I forget how easy php is
+        // let f_url = "https://ixspeed.com/proxy.php?"+m_url;
+        console.log( url, query, params );
+        superagent.get( url )
+        .query( query )
+        .then( data => { /*console.log( data.body );*/ callback_func( data.body ) } )
+        // .then( data => { console.log( JSON.parse(data.text) ); callback_func( JSON.parse(data.text) ) } )
+        .catch(console.error);
+        // // .end( (err, res) => {
+        // //     if (err) {
+        // //         console.log ( err );
+        // //         throw new TypeError(err.statusText);
+        // //     }
+        // // });
+
+     //    https.get(f_url, function(res) {
+	    //     console.log("statusCode: ", res.statusCode); //nothing
+	    //     console.log("headers: ", res.headers); //nothing
+
+	    //     res.on('data', function(d) {
+	    //         console.log("data:", d); //nothing
+	    //     });
+	    // }).on('error', function(e) {
+	    //     console.log("err:", e);
+	    // });
+	    // console.log("This gets logged");
+
+
+
         return true;
     }
 
     bucket_data( data, callback_func = (d)=>{return d;} )
     {
     	let buckets = {};
+    	let exchange_inflow = 0;
+    	let exchange_outflow = 0;
+    	let exchange_intraflow = 0;
 
-    	// console.log( data.body );
-    	for( const item of data.body.transactions )
+    	// console.log( data );
+    	console.log("cursor:", data.cursor);
+    	console.log("count:", data.count);
+
+    	for( const item of data.transactions )
     	{
     		// console.log( item );
 
@@ -151,30 +219,92 @@ class WhaleAlertApi
 
     		// console.log( timestamp, ":", symbol, from, "=>", to, amount_usd.toFixed(0) );
 
-    		let key = from + "_" + to;
-    		if( ! key in buckets || ! buckets[key] )
-    			buckets[key] = 0;
-    		buckets[key] += amount_usd;
+    		// let key = from + "_" + to;
+    		let exchange = "from " + from;
+    		let target = "to " + to;
+    		// if( from == "unknown" ) exchange = "from unknown";
+
+    		// // old exchange-target mapping
+    		// if( ! exchange in buckets || ! buckets[ exchange ] )
+    		// 	buckets[ exchange ] = {};
+    		// if( ! target in buckets[exchange] || ! buckets[exchange][target] )
+    		// 	buckets[exchange][target] = 0;
+    		// buckets[exchange][target] += amount_usd;
+
+    		// new target-exchange mapping
+    		if( ! target in buckets || ! buckets[ target ] )
+    			buckets[ target ] = {};
+    		if( ! exchange in buckets[target] || ! buckets[target][exchange] )
+    			buckets[target][exchange] = 0;
+    		buckets[target][exchange] += amount_usd;
+
+    		// handle cases where we transfer from exchange A to B -> we should count this twice?
+
+    		if( from == "unknown" )
+    			exchange_inflow += amount_usd;
+    		else if( to == "unknown" )
+    			exchange_outflow += amount_usd;
+    		else
+    			exchange_intraflow += amount_usd;
 
     	}
 
-    	console.log( buckets );
-    	return callback_func( buckets );
+    	// need to convert into a nice array for the front-end table
+    	// and for the chart we split the data into an x and y array
+    	let sorted_keys = Object.keys( buckets ).sort();
+    	let sorted_totals = [];
+    	let chart_data = [];
+    	sorted_keys.forEach( (item, index) => {
+    		let sorted_tos = Object.keys( buckets[ item ] ).sort();
+    		let entry = [];
+    		let chart_entry = { x:[], y:[], name:item, type:"bar" };
+
+    		sorted_tos.forEach( (to, index) => {
+    			entry.push( {"target": to, "amount": buckets[item][to] } );
+    			chart_entry.x.push( to );
+    			chart_entry.y.push( buckets[item][to] );
+    		});
+	    	sorted_totals.push( {"bucket":item, "totals":entry } );
+			chart_data.push( chart_entry );
+    	});
+
+    	// console.log( buckets );
+		// inflow: num_formatter.format(exchange_inflow),
+		// outflow: num_formatter.format(exchange_outflow),
+		// intraflow: num_formatter.format(exchange_intraflow),
+    	let num_formatter = new Intl.NumberFormat('en-EN', { maximumFractionDigits: 0 });
+    	return callback_func( {buckets:buckets, sort_order: sorted_keys,
+    							inflow: exchange_inflow,
+    							outflow: exchange_outflow,
+    							intraflow: exchange_intraflow,
+    							api_cursor:data.cursor, api_count:data.count,
+    							sorted_totals: sorted_totals, chart_data:chart_data } );
+
     }
+
+
+
 
 }
 
 
-// setup front-end static files (using amplify?)
-// setup the front-end chart
+// setup DB saving of data on second worker thread + pulling of it to render the chart
+// setup prod stage + route 53
+// show data timerange - start + end times 
 // pull in the BTC price data so we can try to correlate!
 
+
+// pull in btc to usd on-exchange liquidity???? how???
+
+
 // use 10min offset and loop over using cursor -> no point to loop before each block transaction is done!
-// setup a process to poll and save to db?
 
 
 
 // DONE
+// setup incremental updates - test on pegitation first
+// setup the front-end chart - bar chart for amounts to/from exchange
+// setup front-end static files (using amplify?)
 // refactor this for a second entry point we can run localy
 // get whale data and bucket it
 
