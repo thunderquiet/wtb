@@ -10,6 +10,9 @@ const fs = require('fs');
 // func to call whale API to get some data
 // func to bucket the data and flush to disk?
 
+// AWS -> Terraform using single account but multiple stages by keeping track of local tf state files
+
+
 let RUNTIME_ENV = "DEV";
 
 // TODO - move to external config file?
@@ -44,7 +47,11 @@ exports.dashboard = function (event, context, callback)
     	case 'get_whale_buckets':
     		func = get_whale_buckets;
     		break;
+    	case 'update_db':
+    		func = update_db;
+    		break;
     	default:
+    		// return a proper error msg to the user?? -> list valid commands -> swagger!!!
     		console.log( "Command not recognized!", event.queryStringParameters );
     		break;
 	}
@@ -89,9 +96,6 @@ function get_front( params, callback )
   }
   return callback(response);
 }
-
-
-
 
 // second end-point to fetch bucket data
 function get_whale_buckets( params, callback )
@@ -283,25 +287,29 @@ class WhaleAlertApi
     }
 
 
-
-
 }
+
+
+
+
+
 
 
 // setup DB saving of data on second worker thread + pulling of it to render the chart
 // setup prod stage + route 53
 // show data timerange - start + end times 
 // pull in the BTC price data so we can try to correlate!
-
+// google analytics style usage tracking????
 
 // pull in btc to usd on-exchange liquidity???? how???
-
+// blue/green deployments -> how to repoint URL as part of deployment?
 
 // use 10min offset and loop over using cursor -> no point to loop before each block transaction is done!
 
 
 
 // DONE
+// deploying to a different stage takes down the first one!!!
 // setup incremental updates - test on pegitation first
 // setup the front-end chart - bar chart for amounts to/from exchange
 // setup front-end static files (using amplify?)

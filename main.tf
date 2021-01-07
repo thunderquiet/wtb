@@ -1,5 +1,10 @@
 
 
+variable "stage_name" {
+	type = string
+	description = "The AWS environment to deploy into"
+}
+
 provider "aws" {
     region = "ap-northeast-1"
 }
@@ -7,7 +12,7 @@ provider "aws" {
 locals {
   layer_name = "dep_layer"
   layer_payload = "./dep_layer.zip"
-  name = "lambda_api"
+  name = "lambda_api-${var.stage_name}"
   // lambda_name = "currentTimeLambda"
   // zip_file_name = "/tmp/currentTimeLambda.zip"
   // handler_name = "currentTimeLambda.handler"
@@ -59,7 +64,14 @@ resource "aws_iam_role_policy" "lambda_role" {
                 "logs:DescribeLogStreams",
                 "logs:PutLogEvents",
                 "logs:GetLogEvents",
-                "logs:FilterLogEvents"
+                "logs:FilterLogEvents",
+				"dynamodb:BatchGetItem",
+				"dynamodb:GetItem",
+				"dynamodb:Query",
+				"dynamodb:Scan",
+				"dynamodb:BatchWriteItem",
+				"dynamodb:PutItem",
+				"dynamodb:UpdateItem"
             ],
             "Resource": "*"
         }
@@ -69,9 +81,22 @@ EOF
 }
 
 
+resource "aws_dynamodb_table" "events_table" {
+  name             = "wtb_api_events-${var.stage_name}"
+  hash_key         = "id"
+  billing_mode   = "PROVISIONED"
+  read_capacity  = 5
+  write_capacity = 5
+  attribute {
+    name = "id"
+    type = "N"
+  }
+}
+
+
 resource "aws_api_gateway_rest_api" "wtb_api" {
-  name        = "ServerlessExample"
-  description = "Terraform Serverless Application Example"
+  name        = "WhaleTradeBotDashboard-${var.stage_name}"
+  description = "Whale Trade BOT Dashboard and API"
 }
 
 resource "aws_lambda_layer_version" "deps_layer" {
@@ -87,7 +112,7 @@ resource "aws_lambda_layer_version" "static_layer" {
     source_code_hash = "${base64sha256(filebase64("static_layer.zip"))}"
 }
 resource "aws_lambda_function" "dashboard" {
-    function_name = "dashboard"
+    function_name = "dashboard-${var.stage_name}"
     handler = "app.dashboard"
     runtime = "nodejs12.x"
     filename = "function.zip"
@@ -142,7 +167,7 @@ resource "aws_api_gateway_deployment" "wtb_api_deploy" {
    ]
 
    rest_api_id = aws_api_gateway_rest_api.wtb_api.id
-   stage_name  = "test"
+   stage_name  = var.stage_name
 }
 
 
@@ -156,8 +181,8 @@ resource "aws_iam_policy_attachment" "api_gateway_logs" {
 resource "aws_api_gateway_method_settings" "api_settings" {
   rest_api_id = aws_api_gateway_rest_api.wtb_api.id
   // stage_name  = "${aws_api_gateway_stage.example.stage_name}"
-  // stage_name  = "${aws_api_gateway_deployment.deployment_production.stage_name}"
-  stage_name = "test"
+  stage_name  = "${aws_api_gateway_deployment.wtb_api_deploy.stage_name}"
+  // stage_name = var.stage_name
   method_path = "*/*"
   settings {
     metrics_enabled = true
