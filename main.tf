@@ -49,7 +49,7 @@ resource "aws_iam_role" "lambda_role" {
 EOF
 }
 resource "aws_iam_role_policy" "lambda_role" {
-  name = "default"
+  name = "${local.name}-def"
   role = "${aws_iam_role.lambda_role.id}"
   policy = <<EOF
 {
@@ -81,6 +81,7 @@ EOF
 }
 
 
+
 resource "aws_dynamodb_table" "events_table" {
   name             = "wtb_api_events-${var.stage_name}"
   hash_key         = "id"
@@ -89,8 +90,14 @@ resource "aws_dynamodb_table" "events_table" {
   write_capacity = 5
   attribute {
     name = "id"
-    type = "N"
+    type = "S"
   }
+}
+
+resource "aws_cloudwatch_event_rule" "every_one_minute" {
+  name                = "every-one-minute"
+  description         = "Fires every one minutes"
+  schedule_expression = "rate(1 minute)"
 }
 
 
@@ -99,6 +106,8 @@ resource "aws_api_gateway_rest_api" "wtb_api" {
   description = "Whale Trade BOT Dashboard and API"
 }
 
+
+// the lambda functions
 resource "aws_lambda_layer_version" "deps_layer" {
     layer_name = "deps_layer"
     filename = "dep_layer.zip"
@@ -119,8 +128,36 @@ resource "aws_lambda_function" "dashboard" {
     source_code_hash = "${base64sha256(filebase64("function.zip"))}"
     layers = [aws_lambda_layer_version.deps_layer.arn, aws_lambda_layer_version.static_layer.arn]
 	role = "${aws_iam_role.lambda_role.arn}"
+	environment {
+    	variables = {
+    		RUNTIME_ENV = "${var.stage_name}"
+    	}
+    }
 }
 
+// cloudwatch event to update db
+resource "aws_cloudwatch_event_target" "update_db_every_one_minute" {
+  rule      = "${aws_cloudwatch_event_rule.every_one_minute.name}"
+  target_id = "dashboard_target"
+  arn       = "${aws_lambda_function.dashboard.arn}"
+  input		= <<JSON
+{
+	"queryStringParameters": {"cmd":"update_db"}
+}
+JSON
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_to_call_dashboard" {
+  statement_id  = "AllowExecutionFromCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = "${aws_lambda_function.dashboard.function_name}"
+  principal     = "events.amazonaws.com"
+  source_arn    = "${aws_cloudwatch_event_rule.every_one_minute.arn}"
+}
+
+
+
+// Gateway stuff
 resource "aws_api_gateway_resource" "proxy" {
    rest_api_id = aws_api_gateway_rest_api.wtb_api.id
    parent_id   = aws_api_gateway_rest_api.wtb_api.root_resource_id

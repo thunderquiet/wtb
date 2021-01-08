@@ -5,6 +5,9 @@ const handlebars = require('handlebars');
 const superagent = require('superagent');
 const fs = require('fs');
 
+const AWS = require('aws-sdk');
+
+
 //  design:
 // dashboard panel with columns
 // func to call whale API to get some data
@@ -13,11 +16,12 @@ const fs = require('fs');
 // AWS -> Terraform using single account but multiple stages by keeping track of local tf state files
 
 
-let RUNTIME_ENV = "DEV";
+let RUNTIME_ENV = "dev";
 
 // TODO - move to external config file?
 let config = {
-	"STATIC_CONTENT_PATH": {"DEV": "./", "PROD": "/opt/"}
+	"STATIC_CONTENT_PATH": {"dev": "./", "test": "/opt/", "qa": "/opt/"},
+	"DEFAULT_AWS_CONFIG_PATH": ""
 }
 
 // single entry point from tha gateway API to reduce amoount of boiler-plate code in terraform files
@@ -32,8 +36,14 @@ exports.dashboard = function (event, context, callback)
 
 
     // we check for AWS_LAMBDA_FUNCTION_NAME env var to see if we are running inside lambda or somewhere else
-    if ('AWS_LAMBDA_FUNCTION_NAME' in process.env)
-    	RUNTIME_ENV = "PROD";
+    if ('RUNTIME_ENV' in process.env)
+    	RUNTIME_ENV = process.env.RUNTIME_ENV;
+
+    // if local dev then we need to explicitly load the default aws config file with regions, etc
+    // https://stackoverflow.com/questions/31039948/configuring-region-in-node-js-aws-sdk
+    // TODO - correctly load from config file instead!
+    if(RUNTIME_ENV == "dev")
+    	AWS.config.update({region:'ap-northeast-1'});
 
     let cmd = event.queryStringParameters.cmd;
 	let func = null;
@@ -56,13 +66,16 @@ exports.dashboard = function (event, context, callback)
     		break;
 	}
   
-  let res = (data) => { callback(null, data); };
-  func(event.queryStringParameters, res );
+  let callback_func = (data) => { callback(null, data); };
+  let res = func(event.queryStringParameters, callback_func );
+  console.log( "res:", res );
+
+  if( ! res ) return callback({ statusCode: 500,
+			    headers: {'Content-Type': 'application/json'},
+			    body: '{"msg":"Errors processing request. Possibly many requests to downstream API."}',
+			  })
 }
 
-// serve static files using the same dashbord switch cmd trick (likely more expensive long-term!)!!!!!!
-// get the poly chart draph and render it!!!! + real-time-ish updates
-// dynamo db to save whale results
 
 
 // how to know if we should look localy or in opt?????
@@ -101,16 +114,8 @@ function get_front( params, callback )
 function get_whale_buckets( params, callback )
 {
 	console.log( params );
-	var response = {
-	    statusCode: 200,
-	    headers: {
-	      'Content-Type': 'text/html; charset=utf-8'
-	    },
-	    body: '<p>Hello world!</p>',
-	  }
-
     let alert_api = new WhaleAlertApi();
-    alert_api.get_data( params, ( data) => {
+    let res = alert_api.get_data( params, ( data) => {
     	alert_api.bucket_data( data, (buckets) => {
 			var response = {
 			    statusCode: 200,
@@ -120,9 +125,27 @@ function get_whale_buckets( params, callback )
 			return callback(response);
     	});
    	});
+   	console.log( "res bucket:", res );
+   	return res;
 }
 
 
+// second end-point to fetch bucket data
+function update_db( params, callback )
+{
+	console.log( params );
+    let alert_api = new WhaleAlertApi();
+    return alert_api.get_data( params, (data) => {
+    	alert_api.save_to_db( data, (res) => {
+			var response = {
+			    statusCode: 200,
+			    headers: {'Content-Type': 'application/json'},
+			    body: '{"msg":"all records saved to db"}',
+			  }
+			return callback(response);
+    	});
+   	});
+}
 
 
 class WhaleAlertApi
@@ -159,9 +182,13 @@ class WhaleAlertApi
         console.log( url, query, params );
         superagent.get( url )
         .query( query )
-        .then( data => { /*console.log( data.body );*/ callback_func( data.body ) } )
-        // .then( data => { console.log( JSON.parse(data.text) ); callback_func( JSON.parse(data.text) ) } )
-        .catch(console.error);
+        .then( data => { /*console.log( data.body );*/ return callback_func( data.body ) } )
+        .catch( (err) => {
+        	console.log("Too many requests to the API?");
+        	console.log(err);
+        	exit();	 //leeaving this out seem to hang the entire process??
+        	return false;
+        });
         // // .end( (err, res) => {
         // //     if (err) {
         // //         console.log ( err );
@@ -169,21 +196,30 @@ class WhaleAlertApi
         // //     }
         // // });
 
-     //    https.get(f_url, function(res) {
-	    //     console.log("statusCode: ", res.statusCode); //nothing
-	    //     console.log("headers: ", res.headers); //nothing
-
-	    //     res.on('data', function(d) {
-	    //         console.log("data:", d); //nothing
-	    //     });
-	    // }).on('error', function(e) {
-	    //     console.log("err:", e);
-	    // });
-	    // console.log("This gets logged");
-
-
-
+        console.log("here");
         return true;
+    }
+
+    save_to_db( data, callback_func = (d)=>{return d} )
+    {
+    	
+    	let dynamo = new AWS.DynamoDB.DocumentClient();
+    	// console.log(data);
+
+    	data.transactions.forEach( (item, index) => {
+	    	let record = {
+				TableName:"wtb_api_events-"+RUNTIME_ENV,
+				Item: item
+			}
+
+			// this will automagically ignore/drop duplicates :D
+	    	dynamo.put( record, (err) => {
+	     		if (err) throw err;
+	     	});
+    	});
+	    
+	    // TODO - this should wait and be called only after all records are saved!
+	    return callback_func( true );
     }
 
     bucket_data( data, callback_func = (d)=>{return d;} )
@@ -290,13 +326,9 @@ class WhaleAlertApi
 }
 
 
-
-
-
-
-
 // setup DB saving of data on second worker thread + pulling of it to render the chart
 // setup prod stage + route 53
+// convert exposed methods to a single class instead - no need to expose them anymore
 // show data timerange - start + end times 
 // pull in the BTC price data so we can try to correlate!
 // google analytics style usage tracking????
