@@ -1,11 +1,11 @@
 
 'use strict'
 
+const async = require('async');
+const AWS = require('aws-sdk');
 const handlebars = require('handlebars');
 const superagent = require('superagent');
-const fs = require('fs');
-
-const AWS = require('aws-sdk');
+const fs = require('fs').promises;
 
 
 //  design:
@@ -24,9 +24,9 @@ let config = {
 	"DEFAULT_AWS_CONFIG_PATH": ""
 }
 
+
 // single entry point from tha gateway API to reduce amoount of boiler-plate code in terraform files
-exports.dashboard = function (event, context, callback)
-{
+module.exports.dashboard = async (event, context) => {
 	// take in args for what cmd to run
 	//  one for returning the buckets
 	//  one for returning the html template
@@ -57,6 +57,9 @@ exports.dashboard = function (event, context, callback)
     	case 'get_whale_buckets':
     		func = get_whale_buckets;
     		break;
+    	case 'get_db_buckets':
+    		func = get_db_buckets;
+    		break;
     	case 'update_db':
     		func = update_db;
     		break;
@@ -65,40 +68,70 @@ exports.dashboard = function (event, context, callback)
     		console.log( "Command not recognized!", event.queryStringParameters );
     		break;
 	}
+	// waitforGeeksforGeeks();
+	// console.log("post step");
+	// return;
   
-  let callback_func = (data) => { callback(null, data); };
-  let res = func(event.queryStringParameters, callback_func );
-  console.log( "res:", res );
-
-  if( ! res ) return callback({ statusCode: 500,
-			    headers: {'Content-Type': 'application/json'},
-			    body: '{"msg":"Errors processing request. Possibly many requests to downstream API."}',
-			  })
+  // let callback_func = (data) => { callback(null, data); };
+  // this yields as soon as we hit the first await -> so we must do everything itside it
+	try {
+		let res = await func(event.queryStringParameters);
+		console.log( "dashbaord res:", res );
+  		return res;
+	} catch (err) {
+		console.log(err);
+    	return err;
+	}
 }
+
+
+AWS.config.update({region:'ap-northeast-1'});
+var documentClient = new AWS.DynamoDB.DocumentClient();
+const insertAccount = async (e) => {
+  const params = {
+    Item: e,
+    TableName: 'wtb_api_events-dev'
+  };
+  return documentClient.put(params).promise(); // convert to Promise
+}
+
+function resolvelater() { 
+  return new Promise(resolve => { 
+    setTimeout(() => { 
+      resolve('GeeksforGeeks'); 
+    }, 2000); 
+  });
+} 
+  
+async function waitforGeeksforGeeks() { 
+  console.log('calling'); 
+  const result = await resolvelater(); 
+  console.log(result);
+}
+  
 
 
 
 // how to know if we should look localy or in opt?????
-function get_page( params, callback )
+async function get_page( params )
 {
-	fs.readFile( config.STATIC_CONTENT_PATH[RUNTIME_ENV] + 'static/main.handlebars', "utf8", (err, source) => {
-	    if (err) throw err;
-		// var template = handlebars.compile(source);
-		// var html = template( {foobar:"my foo"} );
-		var html = source; // we will render everything client-side instead
-
-		var response = {
-			statusCode: 200,
-			headers: {
-			  'Content-Type': 'text/html; charset=utf-8'
-			},
-			body: html,
-		}
-		return callback(response);
-	});
+	let source_path = config.STATIC_CONTENT_PATH[RUNTIME_ENV] + 'static/main.handlebars';
+	let source = await fs.readFile( source_path, "utf8"); //, (err, source) => {
+	// not sure how to handle errors yet
+    // if (err) throw err;
+	// var template = handlebars.compile(source);
+	var html = source; // we will render everything client-side instead
+	var response = {
+		statusCode: 200,
+		headers: {
+		  'Content-Type': 'text/html; charset=utf-8'
+		},
+		body: html,
+	}
+	return response;
 }
 
-function get_front( params, callback )
+async function get_front( params )
 {
   var response = {
     statusCode: 200,
@@ -107,44 +140,67 @@ function get_front( params, callback )
     },
     body: '<p>Hello world!</p>',
   }
-  return callback(response);
+  return response;
 }
 
 // second end-point to fetch bucket data
-function get_whale_buckets( params, callback )
+async function get_whale_buckets( params )
 {
 	console.log( params );
     let alert_api = new WhaleAlertApi();
-    let res = alert_api.get_data( params, ( data) => {
-    	alert_api.bucket_data( data, (buckets) => {
-			var response = {
-			    statusCode: 200,
-			    headers: {'Content-Type': 'application/json'},
-			    body: JSON.stringify( buckets ),
-			  }
-			return callback(response);
-    	});
-   	});
-   	console.log( "res bucket:", res );
-   	return res;
+    let api_data = await alert_api.get_data( params );
+	let buckets =  alert_api.bucket_data( api_data );
+	if( !buckets ) return { statusCode: 500, body: 'Something wrong getting data buckets!' };
+
+	var response = {
+	    statusCode: 200,
+	    headers: {'Content-Type': 'application/json'},
+	    body: JSON.stringify( buckets ),
+	  }
+	return response;
+}
+
+// second end-point to fetch bucket data
+async function update_db( params )
+{
+	console.log( params );
+    let alert_api = new WhaleAlertApi();
+    let api_data = await alert_api.get_data( params );
+    
+    console.log("got data");
+    if( !api_data ) return { statusCode: 500, body: 'Error fetching data from downstream API!' };
+
+    let save_res = await alert_api.save_to_db( api_data );
+    console.log( "saved data", save_res );
+
+    if( !save_res ) return { statusCode: 500, body: 'Error saving data!' };
+
+    var response = {
+	    statusCode: 200,
+	    headers: {'Content-Type': 'application/json'},
+	    body: '{"msg":"all records saved to db"}',
+	  }
+	console.log( "returning from update_db" );
+	return response;
 }
 
 
 // second end-point to fetch bucket data
-function update_db( params, callback )
+async function get_db_buckets( params )
 {
+	//DRY!!!
 	console.log( params );
     let alert_api = new WhaleAlertApi();
-    return alert_api.get_data( params, (data) => {
-    	alert_api.save_to_db( data, (res) => {
-			var response = {
-			    statusCode: 200,
-			    headers: {'Content-Type': 'application/json'},
-			    body: '{"msg":"all records saved to db"}',
-			  }
-			return callback(response);
-    	});
-   	});
+    let api_data = await alert_api.get_from_db( params );
+	let buckets =  alert_api.bucket_data( api_data );
+	if( !buckets ) return { statusCode: 500, body: 'Something wrong getting aws data buckets!' };
+
+	var response = {
+	    statusCode: 200,
+	    headers: {'Content-Type': 'application/json'},
+	    body: JSON.stringify( buckets ),
+	  }
+	return response;
 }
 
 
@@ -161,13 +217,12 @@ class WhaleAlertApi
 
 	// for now can we just setup a proxy???????!!!
 
-	get_data( params, callback_func )
+	get_data_sync( params, callback_func )
 	{
         // const fetch_params = { method: 'GET', mode: 'cors' };
 		let start_timestamp = Math.floor(Date.now()/1000) - 3540 ; // last 59min
 		let url = "https://api.whale-alert.io/v1/transactions?";
         console.log( "start:", start_timestamp );
-
 
         // superagent.get( "https://example.com" ).then( data => { console.log(data) } );
         // https://api.whale-alert.io/v1/transactions?api_key=oCAcALPSl98tCbEnzMuq2n0gwbYPClZy&start=1609806534
@@ -182,45 +237,108 @@ class WhaleAlertApi
         console.log( url, query, params );
         superagent.get( url )
         .query( query )
-        .then( data => { /*console.log( data.body );*/ return callback_func( data.body ) } )
+        // .then( data => { /*console.log( data.body );*/ return callback_func( data.body ) } )
+        .then( data => { return data.body; } )
         .catch( (err) => {
         	console.log("Too many requests to the API?");
         	console.log(err);
-        	exit();	 //leeaving this out seem to hang the entire process??
         	return false;
         });
-        // // .end( (err, res) => {
-        // //     if (err) {
-        // //         console.log ( err );
-        // //         throw new TypeError(err.statusText);
-        // //     }
-        // // });
 
-        console.log("here");
+        console.log("returning true from get_data");
         return true;
     }
 
-    save_to_db( data, callback_func = (d)=>{return d} )
-    {
-    	
-    	let dynamo = new AWS.DynamoDB.DocumentClient();
-    	// console.log(data);
+    async get_data( params )
+	{
+		return new Promise(resolve => {
+			// let start_timestamp = Math.floor(Date.now()/1000) - 3540 ; // last 59min
+			let start_timestamp = Math.floor(Date.now()/1000) - 1800 ; // last 30min
+			let url = "https://api.whale-alert.io/v1/transactions?";
 
-    	data.transactions.forEach( (item, index) => {
-	    	let record = {
-				TableName:"wtb_api_events-"+RUNTIME_ENV,
-				Item: item
-			}
+	        // https://api.whale-alert.io/v1/transactions?api_key=oCAcALPSl98tCbEnzMuq2n0gwbYPClZy&start=1609806534
+	        // let api_key = "oCAcALPSl98tCbEnzMuq2n0gwbYPClZy";
+	        let query = { "api_key": this.api_key, "start": start_timestamp };
+	        if( "cursor" in params )
+	        	query["cursor"] = params.cursor;
 
-			// this will automagically ignore/drop duplicates :D
-	    	dynamo.put( record, (err) => {
-	     		if (err) throw err;
-	     	});
-    	});
-	    
-	    // TODO - this should wait and be called only after all records are saved!
-	    return callback_func( true );
+	        console.log( url, query, params );
+	        superagent.get( url )
+	        .query( query )
+	        // .then( data => { /*console.log( data.body );*/ return callback_func( data.body ) } )
+	        .then( data => { resolve(data.body); } )
+	        .catch( (err) => {
+	        	console.log("Too many requests to the API?");
+	        	console.log(err);
+	        	resolve(false);
+	        });
+	        console.log("returning true from get_data");
+	  	});
     }
+
+
+    async save_to_db( data )
+    {
+		let db_handle = new AWS.DynamoDB.DocumentClient();
+		console.log("saving data to db2", data.transactions.length);
+		// console.log(data);
+		let total = data.transactions.length;
+
+		// https://stackoverflow.com/questions/65558345/using-promises-in-a-lambda-node-for-loop
+		for( let i = 0; i < total; i++)
+    	{
+    		// console.log( "index:", i );
+    		let item = data.transactions[i];
+    		
+    		let params = {
+	    		TableName:"wtb_api_events-"+RUNTIME_ENV,
+	    		Item: item
+			};
+			await this._save_data( db_handle, item )
+			.catch((error) => {
+			    console.log(error);
+			   throw error; //don't care about this error, just continue
+			});
+    	}
+    	return {"body": "all good", statusCode: 200};
+
+    }
+
+	async _save_data( db_handle, item )
+	{
+	  let params = {
+	    Item: item,
+	    TableName:"wtb_api_events-"+RUNTIME_ENV,
+	  };
+	  return db_handle.put(params).promise();
+	}
+
+	async get_from_db( {start_timestamp, end_timestamp} )
+	{
+		// start_timestamp = Math.floor(Date.now()/1000) - 3540 ; // last 59min -> move to front-end param
+		let db_handle = new AWS.DynamoDB.DocumentClient();
+
+    		// TableName:"wtb_api_events-"+RUNTIME_ENV,
+    		// force fetch ro mthe test tablefor now because that is only one upto date
+		let params = {
+			TableName:"wtb_api_events-test",
+    		IndexName: "gsi-symbol",
+    		ExpressionAttributeNames: { '#timestamp': 'timestamp' },
+			ExpressionAttributeValues: { ':start_timestamp': Number(start_timestamp),
+											':end_timestamp': Number(end_timestamp),
+											':symbol': "btc" },
+			KeyConditionExpression: 'symbol = :symbol',
+			FilterExpression: '#timestamp >= :start_timestamp AND #timestamp <= :end_timestamp'
+		};
+		console.log( params );
+
+		let data = await db_handle.query( params ).promise();
+		// handle no data!
+		console.log( "data count:", data.Count );
+		return data;
+	}
+
+
 
     bucket_data( data, callback_func = (d)=>{return d;} )
     {
@@ -230,10 +348,10 @@ class WhaleAlertApi
     	let exchange_intraflow = 0;
 
     	// console.log( data );
-    	console.log("cursor:", data.cursor);
-    	console.log("count:", data.count);
-
-    	for( const item of data.transactions )
+    	// console.log("cursor:", data.cursor);
+    	// console.log("count:", data.count);
+    	// for( const item of data.transactions )
+    	for( const item of data.Items )
     	{
     		// console.log( item );
 
@@ -313,34 +431,47 @@ class WhaleAlertApi
 		// outflow: num_formatter.format(exchange_outflow),
 		// intraflow: num_formatter.format(exchange_intraflow),
     	let num_formatter = new Intl.NumberFormat('en-EN', { maximumFractionDigits: 0 });
-    	return callback_func( {buckets:buckets, sort_order: sorted_keys,
+    	return {buckets:buckets, sort_order: sorted_keys,
     							inflow: exchange_inflow,
     							outflow: exchange_outflow,
     							intraflow: exchange_intraflow,
     							api_cursor:data.cursor, api_count:data.count,
-    							sorted_totals: sorted_totals, chart_data:chart_data } );
+    							sorted_totals: sorted_totals, chart_data:chart_data };
 
     }
 
 
 }
 
+// Pav's Crypto Trade Bot
 
-// setup DB saving of data on second worker thread + pulling of it to render the chart
+
+// ML -> given the current kline tuple,
+// 		predict it next closing price is up or down (and then repeat again if it will be above or below the fee profit level)
+
+
+// pull in the BTC kline from binance and plot it (1m + 5m)
+// TradingVIew lib??? or some other chart?
+// research ML traiing on this data?
+// test on phone screen!!???
+// overlap whale bucket data (~15h)
 // setup prod stage + route 53
+// poke Shiho? / alpha done
+
+
+// update_db should be paging is result set is over 100!!!!!
+// add a smoke-screen test to at least go thorough all routes with default params and get 200 result
+// refactor into route-facing class + db_store
 // convert exposed methods to a single class instead - no need to expose them anymore
 // show data timerange - start + end times 
-// pull in the BTC price data so we can try to correlate!
 // google analytics style usage tracking????
-
-// pull in btc to usd on-exchange liquidity???? how???
 // blue/green deployments -> how to repoint URL as part of deployment?
-
 // use 10min offset and loop over using cursor -> no point to loop before each block transaction is done!
 
 
 
 // DONE
+// setup DB saving of data on second worker thread + pulling of it to render the chart
 // deploying to a different stage takes down the first one!!!
 // setup incremental updates - test on pegitation first
 // setup the front-end chart - bar chart for amounts to/from exchange

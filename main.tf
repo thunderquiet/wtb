@@ -92,6 +92,24 @@ resource "aws_dynamodb_table" "events_table" {
     name = "id"
     type = "S"
   }
+  attribute {
+    name = "timestamp"
+    type = "N"
+  }
+  attribute {
+    name = "symbol"
+    type = "S"
+  }
+  global_secondary_index {
+  	name = "gsi-timestamp"
+  	hash_key = "timestamp"
+  	projection_type = "ALL"
+  }
+  global_secondary_index {
+  	name = "gsi-symbol"
+  	hash_key = "symbol"
+  	projection_type = "ALL"
+  }
 }
 
 resource "aws_cloudwatch_event_rule" "every_one_minute" {

@@ -10,7 +10,7 @@
         crossorigin="anonymous"></script>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.js"></script>
-
+  <script src="https://canvasjs.com/assets/script/canvasjs.stock.min.js"></script>
 
 <!--   <script>
     var context = {title: "My New Post", body: "This is my first post!"}
@@ -37,20 +37,138 @@
         //   count++;
         // }
 
+
+        var dataPoints1 = [], dataPoints2 = [], dataPoints3 = [];
+        var stockChart = new CanvasJS.StockChart("chartContainer",{
+          exportEnabled: true,
+          theme: "light2",
+          title:{ text:"" },
+          charts: [{ 
+            toolTip: { shared: true },
+            axisX: {
+              lineThickness: 5,
+              tickLength: 0,
+              labelFormatter: function(e) { return ""; },
+              crosshair: {
+                enabled: true,
+                snapToDataPoint: true,
+                labelFormatter: function(e) { return "" }
+              }
+            },
+            axisY2: { title: "BTC Price", prefix: "€" },
+            legend: { verticalAlign: "top", horizontalAlign: "left" },
+            data: [{
+              name: "Price (in USDT)",
+              yValueFormatString: "##,###.##",
+              axisYType: "secondary",
+              type: "candlestick",
+              risingColor: "green",
+              fallingColor: "red",
+              dataPoints : dataPoints1
+            }]
+          },{
+            height: 100,
+            toolTip: {
+              shared: true
+            },
+            axisX: {
+              crosshair: {
+                enabled: true,
+                snapToDataPoint: true
+              }
+            },
+            axisY2: {
+              prefix: "BTC",
+              title: "BTC Vol"
+            },
+            legend: {
+              horizontalAlign: "left"
+            },
+            data: [{
+              yValueFormatString: "##,###.##",
+              axisYType: "secondary",
+              name: "BTC/USDT",
+              dataPoints : dataPoints2
+            }]
+          }],
+          navigator: {
+            data: [{
+              color: "grey",
+              dataPoints: dataPoints3
+            }]
+          },
+          rangeSelector: {
+            enabled: false
+          }
+        });
+
+        // $.getJSON("https://canvasjs.com/data/docs/ltceur2018.json", (data) => {
+        //   console.log(data);
+        //   for(var i = 1; i < 10; i++){
+        //     // console.log( new Date("2018-01-0"+i+"T10:30:0"+i+"Z") );
+        //     let d = new Date("2018-01-0"+i+"T10:30:0"+i+"Z");
+        //     console.log(d)
+        //     dataPoints1.push({x: d, y: [Number(data[i].open), Number(data[i].high), Number(data[i].low), Number(data[i].close)], color: data[i].open < data[i].close ? "green" : "red"});;
+        //     dataPoints2.push({x: d, y: Number(data[i].volume_eur), color: data[i].open < data[i].close ? "green" : "red"});
+        //     dataPoints3.push({x: d, y: Number(data[i].close)});
+        //   }
+        //   stockChart.render();
+        // });
+
+
+        // https://fapi.binance.com/fapi/v1/continuousKlines?pair=btcusdt&interval=5m&contractType=PERPETUAL
+        let api_url = "https://fapi.binance.com/fapi/v1/" + "continuousKlines?pair=btcusdt&interval=1m&contractType=PERPETUAL";
+        console.log( api_url );
+        $.getJSON( api_url, (data) => {
+          // console.log( "data:", data);
+          for (let entry of data )
+          {
+            // console.log(entry);
+            // let entry_date = new Date( entry[0] );
+            // let i = entry_date.getMinutes();
+            // let d = new Date("2018-01-01T10:"+i+":00Z");
+            let d = new Date( entry[0] );
+            console.log( "d:", d );
+
+
+            dataPoints1.push({x: d, //open time
+                              y: [Number(entry[1]),  //open
+                                  Number(entry[2]),  //high
+                                  Number(entry[3]),  //low
+                                  Number(entry[4])   //close
+                                ],
+                              color: entry[1] < entry[4] ? "green" : "red"
+                            });
+            dataPoints2.push({x: d, y: Number(entry[5]), color: entry[1] < entry[4] ? "green" : "red"});
+            dataPoints3.push({x: d, y: Number(entry[4] )}); // close
+
+
+          }
+          
+          stockChart.render();
+
+        });
+
+
     });
 
     function fetch_data(  )
     {
-      let url = '?cmd=get_whale_buckets';
+      let url = '?cmd=get_db_buckets';
+      // start_timestamp, end_timestamp
+      let end_timestamp = Math.floor(Date.now()/1000);
+      let start_timestamp = end_timestamp - 18000 ; // last 59min
+
       // console.log( "dashboard state:", dashboard_data.sum);
       if( dashboard_data.sum ) url += "&cursor=" + dashboard_data.sum.api_cursor;
+      url += "&start_timestamp=" + start_timestamp + "&end_timestamp=" + end_timestamp;
       fetch( url )
         .then(response => response.json())
         .then(data => {
           // console.log(data)
           concord_front( data );
           if( dashboard_data.sum.api_count == 100 )
-            setTimeout( fetch_data, 6000); // we wait a few seconds between calls - rate limit of 10 per min!
+            setTimeout( fetch_data, 4000); // we wait a few seconds between calls - rate limit of 10 per min!
         });
     }
 
@@ -149,14 +267,16 @@
 
 <h1>Whale Trade</h1>
 
-<div id="buckets-chart"></div>
+<div id="chartContainer" style="height: 500px; width: 100%;"></div>
 
-<div id="flow-stats" >
-</div>
+
+<div id="buckets-chart"></div>
+<div id="flow-stats" ></div>
 
 <br/>
 
 <div id="buckets-table"></div>
+
 
 
 
