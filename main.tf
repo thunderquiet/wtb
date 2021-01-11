@@ -104,11 +104,15 @@ resource "aws_dynamodb_table" "events_table" {
   	name = "gsi-timestamp"
   	hash_key = "timestamp"
   	projection_type = "ALL"
+  	read_capacity  = 5
+  	write_capacity = 5
   }
   global_secondary_index {
   	name = "gsi-symbol"
   	hash_key = "symbol"
   	projection_type = "ALL"
+  	read_capacity  = 5
+  	write_capacity = 5
   }
 }
 

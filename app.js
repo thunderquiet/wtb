@@ -76,7 +76,7 @@ module.exports.dashboard = async (event, context) => {
   // this yields as soon as we hit the first await -> so we must do everything itside it
 	try {
 		let res = await func(event.queryStringParameters);
-		console.log( "dashbaord res:", res );
+		// console.log( "dashbaord res:", res );
   		return res;
 	} catch (err) {
 		console.log(err);
@@ -175,10 +175,11 @@ async function update_db( params )
 
     if( !save_res ) return { statusCode: 500, body: 'Error saving data!' };
 
+    let count = api_data.transactions.length;
     var response = {
 	    statusCode: 200,
 	    headers: {'Content-Type': 'application/json'},
-	    body: '{"msg":"all records saved to db"}',
+	    body: '{"msg":"all '+count+' records saved to db"}',
 	  }
 	console.log( "returning from update_db" );
 	return response;
@@ -192,7 +193,9 @@ async function get_db_buckets( params )
 	console.log( params );
     let alert_api = new WhaleAlertApi();
     let api_data = await alert_api.get_from_db( params );
-	let buckets =  alert_api.bucket_data( api_data );
+	let buckets =  alert_api.bucket_data_exchange( api_data );
+	let buckets_timeseries =  alert_api.bucket_data_timeseries( api_data );
+	buckets["buckets_timeseries"] = buckets_timeseries;
 	if( !buckets ) return { statusCode: 500, body: 'Something wrong getting aws data buckets!' };
 
 	var response = {
@@ -253,7 +256,7 @@ class WhaleAlertApi
 	{
 		return new Promise(resolve => {
 			// let start_timestamp = Math.floor(Date.now()/1000) - 3540 ; // last 59min
-			let start_timestamp = Math.floor(Date.now()/1000) - 1800 ; // last 30min
+			let start_timestamp = Math.floor(Date.now()/1000) - 300 ; // last 5min
 			let url = "https://api.whale-alert.io/v1/transactions?";
 
 	        // https://api.whale-alert.io/v1/transactions?api_key=oCAcALPSl98tCbEnzMuq2n0gwbYPClZy&start=1609806534
@@ -339,8 +342,85 @@ class WhaleAlertApi
 	}
 
 
+	// assume 1m freq
+	bucket_data_timeseries( data )
+	{
+		let buckets = {};
+		let min = 0;
+		let max = 0;
+		for( const item of data.Items )
+    	{
+    		if( ! this._is_entry_supported(item) )
+    			continue;
+    		// console.log( item );	
 
-    bucket_data( data, callback_func = (d)=>{return d;} )
+    		let symbol = item.symbol;
+    		let amount_usd = item.amount_usd;
+    		let timestamp = item.timestamp;
+    		let from = item.from.owner_type;
+    		if( from != "unknown" ) from = item.from.owner;
+    		let to = item.to.owner_type;
+    		if( to != "unknown" ) to = item.to.owner;
+
+
+    		// floor to nearest minute
+    		let time_bucket = Math.floor(timestamp / 60) * 60 * 1000;
+    		// console.log( buckets, time_bucket in buckets );
+    		if( ! buckets[time_bucket] )
+    			buckets[time_bucket] = { "inflow":0, "outflow":0, "intraflow":0 };
+    		
+    		// console.log( timestamp, "=>", time_bucket, ":", symbol, from, "=>", to, amount_usd.toFixed(0) );
+
+			if( from == "unknown" )
+    			buckets[time_bucket]["inflow"] += amount_usd;
+    		else if( to == "unknown" )
+    			buckets[time_bucket]["outflow"] += amount_usd;
+    		else
+    			buckets[time_bucket]["intraflow"] += amount_usd;
+
+    		if( min == 0 || time_bucket < min )
+    			min = time_bucket;
+    		if( max == 0 || time_bucket > max )
+    			max = time_bucket;
+
+    	}
+
+    	// console.log( buckets, min, max );
+
+    	let timeseries = [];
+    	for( let timestamp = min; timestamp <= max; timestamp+=60000 )
+    	{
+    		let inflow = 0;
+    		let outflow = 0;
+    		if( timestamp in buckets )
+    		{
+	    		inflow = buckets[timestamp]["inflow"];
+	    		outflow = buckets[timestamp]["outflow"];
+    			timeseries.push({ "timestamp":timestamp, "inflow":inflow, "outflow":outflow });   		
+	    	}
+    	}
+
+    	console.log( timeseries );
+    	return timeseries;
+	}
+
+	_is_entry_supported( item )
+	{
+		if( item.symbol != "btc" )
+    		return false;
+
+		// filter out transfers between same known owner
+		if( item.from.owner_type != "unknown" && item.from.owner_type == item.to.owner_type )
+			return false;
+
+		// filter out unknown to unknown for now -> not sure how to use them yet
+		if( item.from.owner_type == "unknown" && item.to.owner_type == "unknown" )
+			return false;
+
+		return true
+	}
+
+    bucket_data_exchange( data )
     {
     	let buckets = {};
     	let exchange_inflow = 0;
@@ -356,7 +436,7 @@ class WhaleAlertApi
     		// console.log( item );
 
     		// assume only btc for now - others get more complex with symbols, etc
-    		if( item.symbol != "btc" )
+    		if( ! this._is_entry_supported(item) )
     			continue;
 
     		let symbol = item.symbol;
@@ -366,14 +446,6 @@ class WhaleAlertApi
     		if( from != "unknown" ) from = item.from.owner;
     		let to = item.to.owner_type;
     		if( to != "unknown" ) to = item.to.owner;
-
-    		// filter out transfers between same known owner
-    		if( from != "unknown" && from == to )
-    			continue;
-
-    		// filter out unknown to unknown for now -> not sure how to use them yet
-    		if( from == "unknown" && to == "unknown" )
-    			continue;
 
     		// console.log( timestamp, ":", symbol, from, "=>", to, amount_usd.toFixed(0) );
 
@@ -449,16 +521,14 @@ class WhaleAlertApi
 // ML -> given the current kline tuple,
 // 		predict it next closing price is up or down (and then repeat again if it will be above or below the fee profit level)
 
-
-// pull in the BTC kline from binance and plot it (1m + 5m)
-// TradingVIew lib??? or some other chart?
-// research ML traiing on this data?
+// whale chart mouse-over label should include time component 
 // test on phone screen!!???
-// overlap whale bucket data (~15h)
 // setup prod stage + route 53
 // poke Shiho? / alpha done
+// research ML traiing on this data?
 
 
+// refactor data concordance so we do our chart and others in one model
 // update_db should be paging is result set is over 100!!!!!
 // add a smoke-screen test to at least go thorough all routes with default params and get 200 result
 // refactor into route-facing class + db_store
@@ -471,6 +541,9 @@ class WhaleAlertApi
 
 
 // DONE
+// overlap whale bucket data (~15h)
+// pull in the BTC kline from binance and plot it (1m + 5m)
+// TradingVIew lib??? or some other chart?
 // setup DB saving of data on second worker thread + pulling of it to render the chart
 // deploying to a different stage takes down the first one!!!
 // setup incremental updates - test on pegitation first

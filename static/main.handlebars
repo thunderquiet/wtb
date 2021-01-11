@@ -28,7 +28,24 @@
     $( document ).ready( () => {
         console.log( "document loaded" );
 
-        fetch_data();
+
+        let chart = initialize_chart();
+        populate_binance_data(chart)
+        .then( () => {
+          fetch_bucket_data(chart)
+          .then( () => {
+            chart.chart.render();
+
+              var ema = calculateEMA(chart.data[3] , 7);
+              chart.chart.charts[2].addTo("data", {type: "line", name: "Inflows EMA", showInLegend: true,
+                                                    yValueFormatString: "$#,###", dataPoints: ema, color:"green"});
+              var ema = calculateEMA(chart.data[4] , 7);
+              chart.chart.charts[2].addTo("data", {type: "line", name: "Outflows EMA", showInLegend: true,
+                                                    yValueFormatString: "$#,###", dataPoints: ema, color:"red"});
+
+
+          });
+        });
 
         // let limit = 3;
         // let count = 0;
@@ -38,70 +55,120 @@
         // }
 
 
-        var dataPoints1 = [], dataPoints2 = [], dataPoints3 = [];
-        var stockChart = new CanvasJS.StockChart("chartContainer",{
-          exportEnabled: true,
-          theme: "light2",
-          title:{ text:"" },
-          charts: [{ 
-            toolTip: { shared: true },
-            axisX: {
-              lineThickness: 5,
-              tickLength: 0,
-              labelFormatter: function(e) { return ""; },
-              crosshair: {
-                enabled: true,
-                snapToDataPoint: true,
-                labelFormatter: function(e) { return "" }
-              }
-            },
-            axisY2: { title: "BTC Price", prefix: "€" },
-            legend: { verticalAlign: "top", horizontalAlign: "left" },
-            data: [{
-              name: "Price (in USDT)",
-              yValueFormatString: "##,###.##",
-              axisYType: "secondary",
-              type: "candlestick",
-              risingColor: "green",
-              fallingColor: "red",
-              dataPoints : dataPoints1
-            }]
-          },{
-            height: 100,
-            toolTip: {
-              shared: true
-            },
-            axisX: {
-              crosshair: {
-                enabled: true,
-                snapToDataPoint: true
-              }
-            },
-            axisY2: {
-              prefix: "BTC",
-              title: "BTC Vol"
-            },
-            legend: {
-              horizontalAlign: "left"
-            },
-            data: [{
-              yValueFormatString: "##,###.##",
-              axisYType: "secondary",
-              name: "BTC/USDT",
-              dataPoints : dataPoints2
-            }]
-          }],
-          navigator: {
-            data: [{
-              color: "grey",
-              dataPoints: dataPoints3
-            }]
-          },
-          rangeSelector: {
-            enabled: false
-          }
-        });
 
+
+    });
+
+  function calculateEMA(dps,count) {
+    var k = 2/(count + 1);
+    var emaDps = [{x: dps[0].x, y: dps[0].y.length ? dps[0].y[3] : dps[0].y}];
+    for (var i = 1; i < dps.length; i++) {
+      emaDps.push({x: dps[i].x, y: (dps[i].y.length ? dps[i].y[3] : dps[i].y) * k + emaDps[i - 1].y * (1 - k)});
+    }
+    return emaDps;
+  }
+
+    function initialize_chart()
+    {
+      // https://canvasjs.com/javascript-stockcharts/
+      var dataPoints1 = [], dataPoints2 = [], dataPoints3 = [], dataPoints4 = [], dataPoints5 = [];
+      var stockChart = new CanvasJS.StockChart("chartContainer",{
+        exportEnabled: true,
+        theme: "light2",
+        title:{ text:"" },
+        charts: [{ 
+          toolTip: { shared: true },
+          axisX: {
+            lineThickness: 5,
+            tickLength: 0,
+            labelFormatter: function(e) { return ""; },
+            crosshair: {
+              enabled: true,
+              snapToDataPoint: true,
+              labelFormatter: function(e) { return "" }
+            }
+          },
+          axisY2: { title: "BTC Price", prefix: "€" },
+          legend: { verticalAlign: "top", horizontalAlign: "left" },
+          data: [{
+            name: "Price (in USDT)",
+            yValueFormatString: "##,###.##",
+            axisYType: "secondary",
+            type: "candlestick",
+            risingColor: "green",
+            fallingColor: "red",
+            dataPoints : dataPoints1
+          }]
+        },{
+          height: 100,
+          toolTip: {
+            shared: true
+          },
+          axisX: {
+            crosshair: {
+              enabled: true,
+              snapToDataPoint: true
+            }
+          },
+          axisY2: {
+            prefix: "BTC",
+            title: "BTC Vol"
+          },
+          legend: {
+            horizontalAlign: "left"
+          },
+          data: [{
+            yValueFormatString: "##,###.##",
+            axisYType: "secondary",
+            name: "BTC/USDT",
+            dataPoints : dataPoints2
+          }]
+        },{
+          height: 200,
+          toolTip: { shared: true },
+          axisX: {
+            crosshair: {
+              enabled: true,
+              snapToDataPoint: true
+            }
+          },
+          axisY: {
+            prefix: "USD",
+            title: "USD Vol"
+          },
+          legend: {
+            horizontalAlign: "left"
+          },
+          data: [{
+            yValueFormatString: "###,###",
+            axisYType: "secondary",
+            name: "USDT Inflow",
+            dataPoints : dataPoints4
+          },
+          {
+            yValueFormatString: "###,###",
+            axisYType: "secondary",
+            name: "USDT Outflow",
+            dataPoints : dataPoints5
+          }]
+        }],
+
+        navigator: {
+          data: [{
+            color: "grey",
+            dataPoints: dataPoints3
+          }]
+        },
+        rangeSelector: {
+          enabled: false
+        }
+      });
+
+      return {"chart": stockChart, "data": [dataPoints1, dataPoints2, dataPoints3, dataPoints4, dataPoints5] };
+    }
+
+    async function populate_binance_data( chart_obj )
+    {
         // $.getJSON("https://canvasjs.com/data/docs/ltceur2018.json", (data) => {
         //   console.log(data);
         //   for(var i = 1; i < 10; i++){
@@ -115,11 +182,10 @@
         //   stockChart.render();
         // });
 
-
         // https://fapi.binance.com/fapi/v1/continuousKlines?pair=btcusdt&interval=5m&contractType=PERPETUAL
         let api_url = "https://fapi.binance.com/fapi/v1/" + "continuousKlines?pair=btcusdt&interval=1m&contractType=PERPETUAL";
         console.log( api_url );
-        $.getJSON( api_url, (data) => {
+        await $.getJSON( api_url, (data) => {
           // console.log( "data:", data);
           for (let entry of data )
           {
@@ -128,10 +194,9 @@
             // let i = entry_date.getMinutes();
             // let d = new Date("2018-01-01T10:"+i+":00Z");
             let d = new Date( entry[0] );
-            console.log( "d:", d );
+            // console.log( "d:", d );
 
-
-            dataPoints1.push({x: d, //open time
+            chart_obj.data[0].push({x: d, //open time
                               y: [Number(entry[1]),  //open
                                   Number(entry[2]),  //high
                                   Number(entry[3]),  //low
@@ -139,38 +204,46 @@
                                 ],
                               color: entry[1] < entry[4] ? "green" : "red"
                             });
-            dataPoints2.push({x: d, y: Number(entry[5]), color: entry[1] < entry[4] ? "green" : "red"});
-            dataPoints3.push({x: d, y: Number(entry[4] )}); // close
-
-
+            chart_obj.data[1].push({x: d, y: Number(entry[5]), color: entry[1] < entry[4] ? "green" : "red"});
+            chart_obj.data[2].push({x: d, y: Number(entry[4] )}); // close
           }
-          
-          stockChart.render();
-
         });
+    }
 
-
-    });
-
-    function fetch_data(  )
+    async function fetch_bucket_data( chart_obj )
     {
       let url = '?cmd=get_db_buckets';
       // start_timestamp, end_timestamp
       let end_timestamp = Math.floor(Date.now()/1000);
-      let start_timestamp = end_timestamp - 18000 ; // last 59min
+      let start_timestamp = end_timestamp - (3600 * 8 ) ; // last 8 hours to make it same scale as pricing
 
       // console.log( "dashboard state:", dashboard_data.sum);
       if( dashboard_data.sum ) url += "&cursor=" + dashboard_data.sum.api_cursor;
       url += "&start_timestamp=" + start_timestamp + "&end_timestamp=" + end_timestamp;
-      fetch( url )
+      await fetch( url )
         .then(response => response.json())
         .then(data => {
           // console.log(data)
           concord_front( data );
-          if( dashboard_data.sum.api_count == 100 )
-            setTimeout( fetch_data, 4000); // we wait a few seconds between calls - rate limit of 10 per min!
+          populate_bucket_data( data, chart_obj );
+          // if( dashboard_data.sum.api_count == 100 )
+          //   setTimeout( fetch_data, 4000); // we wait a few seconds between calls - rate limit of 10 per min!
         });
     }
+
+    function populate_bucket_data( data, chart_obj )
+    {
+      // console.log(data);
+      for(let entry of data.buckets_timeseries )
+      {
+        console.log( entry );
+        let d = new Date( entry.timestamp );
+        chart_obj.data[3].push({x: d, y: entry.inflow, color: "green"});
+        chart_obj.data[4].push({x: d, y: entry.outflow, color: "red"});
+        
+      }
+    }
+
 
     function concord_front( data )
     {
@@ -231,6 +304,7 @@
       render( dashboard_data.sum, '#tp-flow-stats', '#flow-stats' );
 
       Plotly.newPlot('buckets-chart', dashboard_data.sum.chart_data, {barmode: 'group'} );
+
     }
 
     function key_in_obj( key, sorted_totals, obj_attribute_name )
@@ -269,9 +343,11 @@
 
 <div id="chartContainer" style="height: 500px; width: 100%;"></div>
 
+<br/>
 
-<div id="buckets-chart"></div>
+Total flows in the last 8 hours:
 <div id="flow-stats" ></div>
+<div id="buckets-chart"></div>
 
 <br/>
 
