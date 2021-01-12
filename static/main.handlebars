@@ -38,10 +38,14 @@
 
               var ema = calculateEMA(chart.data[3] , 7);
               chart.chart.charts[2].addTo("data", {type: "line", name: "Inflows EMA", showInLegend: true,
-                                                    yValueFormatString: "$#,###", dataPoints: ema, color:"green"});
+                                                    yValueFormatString: "#,###", dataPoints: ema, color:"green"});
               var ema = calculateEMA(chart.data[4] , 7);
               chart.chart.charts[2].addTo("data", {type: "line", name: "Outflows EMA", showInLegend: true,
-                                                    yValueFormatString: "$#,###", dataPoints: ema, color:"red"});
+                                                    yValueFormatString: "#,###", dataPoints: ema, color:"red"});
+
+              var ema = calculateEMA(chart.data[6] , 7);
+              chart.chart.charts[3].addTo("data", {type: "line", name: "SMA", showInLegend: true,
+                                                    yValueFormatString: "#,###", dataPoints: ema, color:"blue"});
 
 
           });
@@ -59,24 +63,30 @@
 
     });
 
-  function calculateEMA(dps,count) {
-    var k = 2/(count + 1);
-    var emaDps = [{x: dps[0].x, y: dps[0].y.length ? dps[0].y[3] : dps[0].y}];
-    for (var i = 1; i < dps.length; i++) {
-      emaDps.push({x: dps[i].x, y: (dps[i].y.length ? dps[i].y[3] : dps[i].y) * k + emaDps[i - 1].y * (1 - k)});
+    // SMa doesn't seem to be working (at least not out ofthe box) because of too many 0s
+    function calculateEMA(dps,count) {
+      var k = 2/(count + 1);
+      var emaDps = [{x: dps[0].x, y: dps[0].y.length ? dps[0].y[3] : dps[0].y}];
+      for (var i = 1; i < dps.length; i++) {
+        emaDps.push({x: dps[i].x, y: (dps[i].y.length ? dps[i].y[3] : dps[i].y) * k + emaDps[i - 1].y * (1 - k)});
+      }
+      return emaDps;
     }
-    return emaDps;
-  }
+
+
 
     function initialize_chart()
     {
       // https://canvasjs.com/javascript-stockcharts/
-      var dataPoints1 = [], dataPoints2 = [], dataPoints3 = [], dataPoints4 = [], dataPoints5 = [];
+      var dataPoints1 = [], dataPoints2 = [], dataPoints3 = [], dataPoints4 = [],
+            dataPoints5 = [], dataPoints6 = [], dataPoints7 = [];
       var stockChart = new CanvasJS.StockChart("chartContainer",{
         exportEnabled: true,
         theme: "light2",
         title:{ text:"" },
-        charts: [{ 
+        charts: [
+
+        { 
           toolTip: { shared: true },
           axisX: {
             lineThickness: 5,
@@ -88,18 +98,27 @@
               labelFormatter: function(e) { return "" }
             }
           },
-          axisY2: { title: "BTC Price", prefix: "€" },
-          legend: { verticalAlign: "top", horizontalAlign: "left" },
+          axisY: {
+            title: "BTC Price",
+            prefix: "BTC"
+         },
+          legend: {
+            verticalAlign: "top",
+            horizontalAlign: "right"
+          },
           data: [{
             name: "Price (in USDT)",
             yValueFormatString: "##,###.##",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             type: "candlestick",
             risingColor: "green",
             fallingColor: "red",
             dataPoints : dataPoints1
           }]
-        },{
+        },
+
+        {
           height: 100,
           toolTip: {
             shared: true
@@ -115,43 +134,63 @@
             title: "BTC Vol"
           },
           legend: {
-            horizontalAlign: "left"
+            horizontalAlign: "right"
           },
           data: [{
             yValueFormatString: "##,###.##",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
-            name: "BTC/USDT",
+            name: "BTC",
             dataPoints : dataPoints2
           }]
-        },{
+        },
+
+        {
           height: 200,
           toolTip: { shared: true },
-          axisX: {
-            crosshair: {
-              enabled: true,
-              snapToDataPoint: true
-            }
-          },
-          axisY: {
-            prefix: "USD",
-            title: "USD Vol"
-          },
-          legend: {
-            horizontalAlign: "left"
-          },
+          axisX: { crosshair: { enabled: true, snapToDataPoint: true } },
+          axisY: { prefix: "USD", title: "USD Vol" },
+          legend: { horizontalAlign: "right" },
           data: [{
-            yValueFormatString: "###,###",
+            yValueFormatString: "$###,###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "USDT Inflow",
             dataPoints : dataPoints4
           },
           {
-            yValueFormatString: "###,###",
+            yValueFormatString: "$###,###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "USDT Outflow",
             dataPoints : dataPoints5
+          },{
+            yValueFormatString: "$###,###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
+            axisYType: "secondary",
+            name: "USDT Exchange Vol",
+            dataPoints : dataPoints6
           }]
-        }],
+        },
+
+        {
+          height: 200,
+          toolTip: { shared: true },
+          axisX: { crosshair: { enabled: true, snapToDataPoint: true } },
+          axisY: { prefix: "USD", title: "USD Vol" },
+          legend: { horizontalAlign: "right" },
+          data: [
+          {
+            yValueFormatString: "$###,###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
+            axisYType: "secondary",
+            name: "USDT Flow Total",
+            dataPoints : dataPoints7
+          }]
+        }
+
+
+        ],
 
         navigator: {
           data: [{
@@ -164,38 +203,29 @@
         }
       });
 
-      return {"chart": stockChart, "data": [dataPoints1, dataPoints2, dataPoints3, dataPoints4, dataPoints5] };
+      return {"chart": stockChart, "data": [dataPoints1, dataPoints2, dataPoints3, dataPoints4,
+                                            dataPoints5, dataPoints6, dataPoints7] };
     }
 
     async function populate_binance_data( chart_obj )
     {
-        // $.getJSON("https://canvasjs.com/data/docs/ltceur2018.json", (data) => {
-        //   console.log(data);
-        //   for(var i = 1; i < 10; i++){
-        //     // console.log( new Date("2018-01-0"+i+"T10:30:0"+i+"Z") );
-        //     let d = new Date("2018-01-0"+i+"T10:30:0"+i+"Z");
-        //     console.log(d)
-        //     dataPoints1.push({x: d, y: [Number(data[i].open), Number(data[i].high), Number(data[i].low), Number(data[i].close)], color: data[i].open < data[i].close ? "green" : "red"});;
-        //     dataPoints2.push({x: d, y: Number(data[i].volume_eur), color: data[i].open < data[i].close ? "green" : "red"});
-        //     dataPoints3.push({x: d, y: Number(data[i].close)});
-        //   }
-        //   stockChart.render();
-        // });
-
         // https://fapi.binance.com/fapi/v1/continuousKlines?pair=btcusdt&interval=5m&contractType=PERPETUAL
-        let api_url = "https://fapi.binance.com/fapi/v1/" + "continuousKlines?pair=btcusdt&interval=1m&contractType=PERPETUAL";
-        console.log( api_url );
-        await $.getJSON( api_url, (data) => {
-          // console.log( "data:", data);
-          for (let entry of data )
+        let api_url = "https://fapi.binance.com/fapi/v1/continuousKlines";
+        let config = await fetch_url( '?cmd=get_config' );
+        
+        // the API gets only ~8h of data per call, so we loop over
+        let end_timestamp = Math.floor(Date.now());
+        let start_timestamp = end_timestamp - config.DEFAULT_CHART_LENGTH; //24h
+        while( start_timestamp < end_timestamp )
+        {
+          let chunk_end_timestamp = start_timestamp + config.BINANCE_FETCH_SIZE;
+          // console.log( start_timestamp + config.BINANCE_FETCH_SIZE, end_timestamp );
+          let params = {"pair":"btcusdt", "interval":"1m", "contractType":"PERPETUAL", 
+                      "startTime": start_timestamp, "endTime": chunk_end_timestamp };
+          let prices = await fetch_url( api_url, params );
+          for (let entry of prices )
           {
-            // console.log(entry);
-            // let entry_date = new Date( entry[0] );
-            // let i = entry_date.getMinutes();
-            // let d = new Date("2018-01-01T10:"+i+":00Z");
             let d = new Date( entry[0] );
-            // console.log( "d:", d );
-
             chart_obj.data[0].push({x: d, //open time
                               y: [Number(entry[1]),  //open
                                   Number(entry[2]),  //high
@@ -207,103 +237,137 @@
             chart_obj.data[1].push({x: d, y: Number(entry[5]), color: entry[1] < entry[4] ? "green" : "red"});
             chart_obj.data[2].push({x: d, y: Number(entry[4] )}); // close
           }
-        });
+          start_timestamp += config.BINANCE_FETCH_SIZE;
+
+          chart_obj.chart.render();
+        }
     }
 
     async function fetch_bucket_data( chart_obj )
     {
+      let config = await fetch_url( '?cmd=get_config' );
       let url = '?cmd=get_db_buckets';
       // start_timestamp, end_timestamp
       let end_timestamp = Math.floor(Date.now()/1000);
-      let start_timestamp = end_timestamp - (3600 * 8 ) ; // last 8 hours to make it same scale as pricing
+      let start_timestamp = end_timestamp - config.DEFAULT_CHART_LENGTH; //24h
 
       // console.log( "dashboard state:", dashboard_data.sum);
       if( dashboard_data.sum ) url += "&cursor=" + dashboard_data.sum.api_cursor;
       url += "&start_timestamp=" + start_timestamp + "&end_timestamp=" + end_timestamp;
-      await fetch( url )
-        .then(response => response.json())
-        .then(data => {
-          // console.log(data)
-          concord_front( data );
-          populate_bucket_data( data, chart_obj );
-          // if( dashboard_data.sum.api_count == 100 )
-          //   setTimeout( fetch_data, 4000); // we wait a few seconds between calls - rate limit of 10 per min!
-        });
+      let data = await fetch_url(url );
+      concord_front( data );
+      populate_bucket_data( data, chart_obj );
+      populate_bucket_data2( data, chart_obj );
     }
 
     function populate_bucket_data( data, chart_obj )
     {
       // console.log(data);
-      for(let entry of data.buckets_timeseries )
+      for(let entry of data.buckets_timeseries_exchanges )
       {
-        console.log( entry );
+        // console.log( entry );
         let d = new Date( entry.timestamp );
         chart_obj.data[3].push({x: d, y: entry.inflow, color: "green"});
         chart_obj.data[4].push({x: d, y: entry.outflow, color: "red"});
+        // chart_obj.data[5].push({x: d, y: entry.vol, color: "blue"});
         
       }
+    }
+
+    // TODO - refactor!
+    function populate_bucket_data2( data, chart_obj )
+    {
+      // console.log(data);
+      for(let entry of data.buckets_timeseries_total )
+      {
+        // console.log( entry );
+        let d = new Date( entry.timestamp );
+        chart_obj.data[6].push({x: d, y: entry.vol, color: "blue"});
+        // chart_obj.data[6].push({x: d, y: entry.net, color: entry.neet > 0 ? "green" : "red"});
+        
+      }
+    }
+
+    async function fetch_url( url, query = null )
+    {
+      if( query )
+      {
+        if( url.slice(-1) != "?" )
+          url += "?";
+        for( let key in query )
+        {
+          url += key + "=" + query[key] + "&";
+        }
+      }
+
+      console.log("fetching", url);
+      return await fetch( url )
+        .then(response => response.json())
+        .then(data => {
+          return data;
+        }); 
     }
 
 
     function concord_front( data )
     {
-      dashboard_data.ticks.push( data );
-      let d = dashboard_data.sum;
-      if( ! d )
-      {
-        d = data;
-        d.api_count_total = data.api_count;
-      }
-      else
-      {
-        console.log( "concording data" );
-        // use the latest data segment to update our summary DS
-        d.inflow += data.inflow;
-        d.outflow += data.outflow;
-        d.intraflow += data.intraflow;
+        dashboard_data.ticks.push( data );
+        let d = dashboard_data.sum;
+        if( ! d )
+        {
+          d = data;
+          d.api_count_total = data.api_count;
+        }
+        else
+        {
+          console.log( "concording data" );
+          // use the latest data segment to update our summary DS
+          d.inflow += data.inflow;
+          d.outflow += data.outflow;
+          d.intraflow += data.intraflow;
 
-        d.api_cursor = data.api_cursor;
-        d.api_count = data.api_count;
-        d.api_count_total += data.api_count;
-        
-        // charts data was created in the same loop as buckets, so we should be able to concord both in the same loop
-        data.sorted_totals.forEach( (item, index) => {
-          let key_index = key_in_obj(item.bucket, d.sorted_totals, "bucket" );
-          if( key_index < 0 )
-          {
-            d.sorted_totals.push( item );
-            d.chart_data.push( data.chart_data[index] );
-          }
-          else
-          {
-            item.totals.forEach((target_item, target_index) => {
-              let target_key_index = key_in_obj(target_item.target, d.sorted_totals[ key_index ], "target" );
-              if( target_key_index < 0 )
-              {
-                d.sorted_totals[ key_index ].push( target_item );
-                d.chart_data[ key_index ].x.push( data.chart_data[index].x[target_index] );
-                d.chart_data[ key_index ].y.push( data.chart_data[index].y[target_index] );
-              }
-              else
-              {
-                d.sorted_totals[ key_index ][ "amount" ] += target_item.amount;
-                d.chart_data[ key_index ].y[target_index] += data.chart_data[index].y[target_index]; 
-              }
-            });
-          }
+          d.api_cursor = data.api_cursor;
+          d.api_count = data.api_count;
+          d.api_count_total += data.api_count;
+          
+          // charts data was created in the same loop as buckets, so we should be able to concord both in the same loop
+          data.sorted_totals.forEach( (item, index) => {
+            let key_index = key_in_obj(item.bucket, d.sorted_totals, "bucket" );
+            if( key_index < 0 )
+            {
+              d.sorted_totals.push( item );
+              d.chart_data.push( data.chart_data[index] );
+            }
+            else
+            {
+              item.totals.forEach((target_item, target_index) => {
+                let target_key_index = key_in_obj(target_item.target, d.sorted_totals[ key_index ], "target" );
+                if( target_key_index < 0 )
+                {
+                  d.sorted_totals[ key_index ].push( target_item );
+                  d.chart_data[ key_index ].x.push( data.chart_data[index].x[target_index] );
+                  d.chart_data[ key_index ].y.push( data.chart_data[index].y[target_index] );
+                }
+                else
+                {
+                  d.sorted_totals[ key_index ][ "amount" ] += target_item.amount;
+                  d.chart_data[ key_index ].y[target_index] += data.chart_data[index].y[target_index]; 
+                }
+              });
+            }
 
-        });
+          });
 
-      }
+        }
 
-      console.log( d );
-      dashboard_data.sum = d;
+        console.log( d );
+        dashboard_data.sum = d;
 
-      // keeping the template and the rendered html seperate lets us be able to rerender the element later on      
-      render( dashboard_data.sum, '#tp-bucket-list', '#buckets-table' );
-      render( dashboard_data.sum, '#tp-flow-stats', '#flow-stats' );
+        // keeping the template and the rendered html seperate lets us be able to rerender the element later on      
+        render( dashboard_data.sum, '#tp-bucket-list', '#buckets-table' );
+        render( dashboard_data.sum, '#tp-flow-stats', '#flow-stats' );
 
-      Plotly.newPlot('buckets-chart', dashboard_data.sum.chart_data, {barmode: 'group'} );
+        Plotly.newPlot('buckets-chart', dashboard_data.sum.chart_data, {barmode: 'group'} );
 
     }
 
@@ -341,11 +405,13 @@
 
 <h1>Whale Trade</h1>
 
-<div id="chartContainer" style="height: 500px; width: 100%;"></div>
+<div id="chartContainer" style="height: 900px; width: 100%;"></div>
 
 <br/>
 
-Total flows in the last 8 hours:
+<!-- Total flows in the last 24 hours:
+<div id="flow-stats-exchange" ></div> -->
+Exchange flows in the last 24 hours:
 <div id="flow-stats" ></div>
 <div id="buckets-chart"></div>
 
