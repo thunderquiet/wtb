@@ -28,28 +28,12 @@
     $( document ).ready( () => {
         console.log( "document loaded" );
 
-
-        let chart = initialize_chart();
-        populate_binance_data(chart)
+        fetch_url( '?cmd=get_config' ).then( (data) => { window.config = data;} )
         .then( () => {
-          fetch_bucket_data(chart)
-          .then( () => {
-            chart.chart.render();
-
-              var ema = calculateEMA(chart.data[3] , 7);
-              chart.chart.charts[2].addTo("data", {type: "line", name: "Inflows EMA", showInLegend: true,
-                                                    yValueFormatString: "#,###", dataPoints: ema, color:"green"});
-              var ema = calculateEMA(chart.data[4] , 7);
-              chart.chart.charts[2].addTo("data", {type: "line", name: "Outflows EMA", showInLegend: true,
-                                                    yValueFormatString: "#,###", dataPoints: ema, color:"red"});
-
-              var ema = calculateEMA(chart.data[6] , 7);
-              chart.chart.charts[3].addTo("data", {type: "line", name: "SMA", showInLegend: true,
-                                                    yValueFormatString: "#,###", dataPoints: ema, color:"blue"});
-
-
-          });
+          let chart = initialize_chart();
+          chart_loop( chart, 0 );
         });
+
 
         // let limit = 3;
         // let count = 0;
@@ -59,9 +43,97 @@
         // }
 
 
+      // var dataCount = 700, ystart = 50, interval = 1000, xstart = (currentDate.getTime() - (700 * 1000));
+      // updateChart(xstart, ystart, dataCount, interval);
+      
+      // function updateChart(xstart, ystart, length, interval) {
+      //   var xVal = xstart, yVal = ystart;
+      //   for(var i = 0; i < length; i++) {
+      //     yVal = yVal +  Math.round(5 + Math.random() *(-5-5));
+      //     yVal = Math.min(Math.max(yVal, 5), 90);
+      //     dataPoints.push({x: xVal,y: yVal});
+      //     xVal += interval;
+      //   }
+      //   if(!rangeChangedTriggered) {
+      //       stockChart.options.navigator.slider.minimum = new Date(xVal - (90 * 1000));
+      //   }
+      //   stockChart.options.charts[0].axisY.stripLines[0].value =  dataPoints[dataPoints.length - 1].y;
+      //   stockChart.options.charts[0].axisY.stripLines[0].label = stockChart.options.charts[0].axisY.stripLines[0]["value"];
+      //   xstart = xVal;
+      //   dataCount = 1;
+      //   ystart = yVal;
+      //   stockChart.render();
+      //   setTimeout(function() { updateChart(xstart, ystart, dataCount, interval); }, 1000);
+      // }
+
 
 
     });
+   
+
+    async function chart_loop( chart, loop_count )
+    {
+        let prices = await get_binane_data();
+        populate_binance_data(chart, prices)
+        .then( () => {
+          fetch_bucket_data(chart)
+          .then( () => {
+            chart.chart.render();
+
+            if( loop_count == 0)
+            {
+              var ema = calculateEMA(chart.data["inflow"] , 7);
+              chart.chart.charts[3].addTo("data", {type: "line", name: "Inflows EMA", showInLegend: true,
+                                                    yValueFormatString: "#,###", dataPoints: ema, color:"green"});
+              var ema = calculateEMA(chart.data["outflow"] , 7);
+              chart.chart.charts[3].addTo("data", {type: "line", name: "Outflows EMA", showInLegend: true,
+                                                    yValueFormatString: "#,###", dataPoints: ema, color:"red"});
+
+              var ema = calculateEMA(chart.data["flow_vol"] , 7);
+              chart.chart.charts[3].addTo("data", {type: "line", name: "EMA", showInLegend: true,
+                                                    yValueFormatString: "#,###", dataPoints: ema, color:"blue"});
+
+
+              var ema12 = calculateEMA(chart.data["price"], 12),
+                  ema26 = calculateEMA(chart.data["price"], 26),
+                  macd = [], ema9, hist =[];
+              for(var i = 0; i < ema12.length; i++) {
+                macd.push({x: ema12[i].x, y: (ema12[i].y - ema26[i].y)});
+              }
+              var ema9 = calculateEMA(macd, 9);
+              for(var i = 0; i < ema12.length; i++)
+              {
+                let score = (macd[i].y - ema9[i].y);
+                hist.push({x: ema12[i].x, y: score, color: score > 0 ? "green" : "red" });
+              }
+
+              chart.chart.charts[2].addTo("data", {type: "line", name: "Signal", showInLegend: true, dataPoints: ema9});
+              chart.chart.charts[2].addTo("data", {type: "line", name: "MACD", showInLegend: true, dataPoints: macd});
+              chart.chart.charts[2].addTo("data", { name: "Hist", showInLegend: true, dataPoints: hist});
+
+              chart.chart.render();
+            }
+
+            // setup updates every 10sec
+            chart_mini_loop( chart )
+          });
+        });
+    }
+
+    function chart_mini_loop( chart )
+    {
+        update_mark_price( chart );
+        get_binane_data("10m").then( (latest_prices) => {
+          populate_binance_data(chart, latest_prices)
+        });
+        setTimeout( () => {
+          chart_mini_loop( chart );
+        }, 1000);
+    }
+
+
+
+
 
     // SMa doesn't seem to be working (at least not out ofthe box) because of too many 0s
     function calculateEMA(dps,count) {
@@ -73,17 +145,36 @@
       return emaDps;
     }
 
-
-
     function initialize_chart()
     {
+      var data_points = { 
+          "price": [],
+          "vol": [],
+          "nav": [],
+          "inflow": [],
+          "outflow": [],
+          "exchange_vol": [],
+          "flow_vol": [],
+          "macd": [],
+          "signal": [],
+          "hist": []
+        };
+
+      //  queue of the last few entries in the data + RT copy of very latest stuff for the current frame
+      var head_queue = {};
+      var rt_queue = {};
+      // let head_time = 1600490920000; //20200919 // most recent time frame that we plot - TODO generate value dynamically
+      // let head_time = (Date.now() - (3600 * 2 * 1000) );
+      let head_time = (Date.now() - (120 * 1000) ); //subtract ~1frame
+      let is_initial_render_done = false;
+
       // https://canvasjs.com/javascript-stockcharts/
-      var dataPoints1 = [], dataPoints2 = [], dataPoints3 = [], dataPoints4 = [],
-            dataPoints5 = [], dataPoints6 = [], dataPoints7 = [];
+      let currentDate = new Date(), rangeChangedTriggered = false;
       var stockChart = new CanvasJS.StockChart("chartContainer",{
         exportEnabled: true,
         theme: "light2",
         title:{ text:"" },
+        rangeChanged: function(e) { rangeChangedTriggered = true; },
         charts: [
 
         { 
@@ -98,9 +189,16 @@
               labelFormatter: function(e) { return "" }
             }
           },
-          axisY: {
+          axisY2: {
             title: "BTC Price",
-            prefix: "BTC"
+            prefix: "BTC",
+            stripLines: [{
+              showOnTop: true,
+              lineDashType: "solid",
+              color: "blue",
+              labelFontColor: "blue",
+              labelFontSize: 14
+            }]
          },
           legend: {
             verticalAlign: "top",
@@ -114,7 +212,7 @@
             type: "candlestick",
             risingColor: "green",
             fallingColor: "red",
-            dataPoints : dataPoints1
+            dataPoints : data_points["price"]
           }]
         },
 
@@ -141,7 +239,35 @@
             xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "BTC",
-            dataPoints : dataPoints2
+            dataPoints : data_points["vol"]
+          }]
+        },
+
+        {
+          height: 200,
+          toolTip: { shared: true },
+          axisX: { crosshair: { enabled: true, snapToDataPoint: true } },
+          axisY: { prefix: "", title: "MACD" },
+          legend: { horizontalAlign: "right" },
+          data: [{
+            yValueFormatString: "###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
+            axisYType: "secondary",
+            name: "MACD",
+            dataPoints : data_points["macd"]
+          },
+          {
+            yValueFormatString: "###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
+            axisYType: "secondary",
+            name: "Signal",
+            dataPoints : data_points["signal"]
+          },{
+            yValueFormatString: "###",
+            xValueFormatString: "MMM DD, YYYY HH:mm:ss",
+            axisYType: "secondary",
+            name: "Hist",
+            dataPoints : data_points["hist"]
           }]
         },
 
@@ -156,20 +282,20 @@
             xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "USDT Inflow",
-            dataPoints : dataPoints4
+            dataPoints : data_points["inflow"]
           },
           {
             yValueFormatString: "$###,###",
             xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "USDT Outflow",
-            dataPoints : dataPoints5
+            dataPoints : data_points["outflow"]
           },{
             yValueFormatString: "$###,###",
             xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "USDT Exchange Vol",
-            dataPoints : dataPoints6
+            dataPoints : data_points["exchange_vol"]
           }]
         },
 
@@ -185,7 +311,7 @@
             xValueFormatString: "MMM DD, YYYY HH:mm:ss",
             axisYType: "secondary",
             name: "USDT Flow Total",
-            dataPoints : dataPoints7
+            dataPoints : data_points["flow_vol"]
           }]
         }
 
@@ -195,38 +321,80 @@
         navigator: {
           data: [{
             color: "grey",
-            dataPoints: dataPoints3
-          }]
+            dataPoints: data_points["nav"]
+          }],
+          slider: {
+            minimum: new Date( head_time - (5400 * 1000) ) //90min default slider selection
+          }
         },
         rangeSelector: {
           enabled: false
         }
       });
 
-      return {"chart": stockChart, "data": [dataPoints1, dataPoints2, dataPoints3, dataPoints4,
-                                            dataPoints5, dataPoints6, dataPoints7] };
+      return {"chart": stockChart, "data": data_points, is_initial_render_done:is_initial_render_done,
+              "rt_queue": rt_queue, "head_queue": head_queue, "head_time": head_time };
     }
 
-    async function populate_binance_data( chart_obj )
+    async function update_mark_price( chart_obj )
+    {
+        let api_url = "https://fapi.binance.com/fapi/v1/premiumIndex";
+        let mark_price_obj = await fetch_url( api_url, {"symbol": "btcusdt"} )
+
+        // chart_obj.chart.render();
+        let price = mark_price_obj["markPrice"];
+        // console.log( "mark_price_obj:", mark_price_obj, price );
+        // console.log( chart_obj.chart.charts[0].axisY2[0] );
+        chart_obj.chart.charts[0].axisY2[0].options.stripLines[0].value = price;
+        chart_obj.chart.charts[0].axisY2[0].options.stripLines[0].label = Number(price).toFixed(1);
+        chart_obj.chart.render();
+    }
+
+    async function get_binane_data( range = "24h" )
     {
         // https://fapi.binance.com/fapi/v1/continuousKlines?pair=btcusdt&interval=5m&contractType=PERPETUAL
         let api_url = "https://fapi.binance.com/fapi/v1/continuousKlines";
-        let config = await fetch_url( '?cmd=get_config' );
+        let config = window.config;
+        let prices = [];
         
         // the API gets only ~8h of data per call, so we loop over
         let end_timestamp = Math.floor(Date.now());
         let start_timestamp = end_timestamp - config.DEFAULT_CHART_LENGTH; //24h
+        if( range == "10m" )
+          start_timestamp = end_timestamp - config.DEFAULT_CHART_UPDATE_LENGTH; //10min
+        
+        // console.log( start_timestamp, "<", end_timestamp);
         while( start_timestamp < end_timestamp )
         {
           let chunk_end_timestamp = start_timestamp + config.BINANCE_FETCH_SIZE;
           // console.log( start_timestamp + config.BINANCE_FETCH_SIZE, end_timestamp );
           let params = {"pair":"btcusdt", "interval":"1m", "contractType":"PERPETUAL", 
                       "startTime": start_timestamp, "endTime": chunk_end_timestamp };
-          let prices = await fetch_url( api_url, params );
-          for (let entry of prices )
+          let new_prices = await fetch_url( api_url, params )
+          prices = [...prices, ...new_prices ];
+          start_timestamp += config.BINANCE_FETCH_SIZE;
+        }
+        return prices;
+    }
+
+    async function populate_binance_data( chart_obj, prices )
+    {
+        // update head queue with last ~10 entries of the price data using timestamp as the key
+        for(let entry of prices.slice(-10) )
+        {
+          let key = entry[0];
+          chart_obj.head_queue[key] = entry;
+        }
+        for (let entry of prices ) // the entries are in reverse chronological order
+        {
+          // same data again
+          if( chart_obj.is_initial_render_done && entry[0] < chart_obj.head_time ) //ignore 
+            continue;
+          // initial data or new latest data
+          if( entry[0] != chart_obj.head_time ) //insert
           {
             let d = new Date( entry[0] );
-            chart_obj.data[0].push({x: d, //open time
+            chart_obj.data["price"].push({x: d, //open time
                               y: [Number(entry[1]),  //open
                                   Number(entry[2]),  //high
                                   Number(entry[3]),  //low
@@ -234,18 +402,45 @@
                                 ],
                               color: entry[1] < entry[4] ? "green" : "red"
                             });
-            chart_obj.data[1].push({x: d, y: Number(entry[5]), color: entry[1] < entry[4] ? "green" : "red"});
-            chart_obj.data[2].push({x: d, y: Number(entry[4] )}); // close
+            chart_obj.data["vol"].push({x: d, y: Number(entry[5]), color: entry[1] < entry[4] ? "green" : "red"});
+            chart_obj.data["nav"].push({x: d, y: Number(entry[4] )}); // close
+            // console.log( "price length after push", chart_obj.data["price"].length );
           }
-          start_timestamp += config.BINANCE_FETCH_SIZE;
+          // update on latest data
+          if( entry[0] == chart_obj.head_time )//update
+          {
+            // console.log( "price length on update", chart_obj.data["price"].length );
+            let i = chart_obj.data["price"].length-1;
+            let row = chart_obj.data["price"].slice(-1)[0];
+            let y = [ Number(entry[1]), Number(entry[2]), Number(entry[3]), Number(entry[4]) ]
+            let color = entry[1] < entry[4] ? "green" : "red";
+            // console.log("row:", row.y );
+            // console.log("y:", y );
 
-          chart_obj.chart.render();
+            // using slice returns a ref!
+            chart_obj.data["price"][i].y = y
+            chart_obj.data["price"][i].color = color;
+            chart_obj.data["vol"][i].y = Number(entry[5])
+            chart_obj.data["vol"][i].color = entry[1] < entry[4] ? "green" : "red";
+            chart_obj.data["nav"][i].y = Number(entry[4]);
+          }
+          
+          if( entry[0] > chart_obj.head_time )
+            chart_obj.head_time = entry[0];
         }
+
+        // chart_obj.chart.render();
+        // console.log( "post update:", chart_obj.data["price"].slice(-1)[0] );
+        // chart_obj.chart.navigator.slider.maximum = new Date( chart_obj.head_time );
+        
+        chart_obj.chart.render();
+        chart_obj.chart.navigator.slider.minimum = new Date( chart_obj.head_time - (600 * 1000) );
+        chart_obj.is_initial_render_done = true;
     }
 
     async function fetch_bucket_data( chart_obj )
     {
-      let config = await fetch_url( '?cmd=get_config' );
+      let config = window.config;
       let url = '?cmd=get_db_buckets';
       // start_timestamp, end_timestamp
       let end_timestamp = Math.floor(Date.now()/1000);
@@ -267,8 +462,8 @@
       {
         // console.log( entry );
         let d = new Date( entry.timestamp );
-        chart_obj.data[3].push({x: d, y: entry.inflow, color: "green"});
-        chart_obj.data[4].push({x: d, y: entry.outflow, color: "red"});
+        chart_obj.data["inflow"].push({x: d, y: entry.inflow, color: "green"});
+        chart_obj.data["outflow"].push({x: d, y: entry.outflow, color: "red"});
         // chart_obj.data[5].push({x: d, y: entry.vol, color: "blue"});
         
       }
@@ -282,7 +477,7 @@
       {
         // console.log( entry );
         let d = new Date( entry.timestamp );
-        chart_obj.data[6].push({x: d, y: entry.vol, color: "blue"});
+        chart_obj.data["flow_vol"].push({x: d, y: entry.vol, color: "blue"});
         // chart_obj.data[6].push({x: d, y: entry.net, color: entry.neet > 0 ? "green" : "red"});
         
       }
@@ -299,8 +494,7 @@
           url += key + "=" + query[key] + "&";
         }
       }
-
-      console.log("fetching", url);
+      // console.log("fetching", url);
       return await fetch( url )
         .then(response => response.json())
         .then(data => {
@@ -405,7 +599,7 @@
 
 <h1>Whale Trade</h1>
 
-<div id="chartContainer" style="height: 900px; width: 100%;"></div>
+<div id="chartContainer" style="height: 1200px; width: 100%;"></div>
 
 <br/>
 

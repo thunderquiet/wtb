@@ -24,6 +24,7 @@ let config = {
 	"DEFAULT_AWS_CONFIG_PATH": "",
 	"DEFAULT_UPDATE_DB_FETCH_RANGE": 60 * 5,
 	"DEFAULT_CHART_LENGTH": 3600 * 24 * 1000,
+	"DEFAULT_CHART_UPDATE_LENGTH": 600 * 1000,
 	"BINANCE_FETCH_SIZE": 3600 * 6 * 1000
 }
 
@@ -140,7 +141,7 @@ class Router
 
 	async get_config( params )
 	{
-		return this.respond( {body:config, type:"json" } );
+		return this.respond( {body: JSON.stringify(config, null, '\t'), type:"json" } );
 	}
 
 
@@ -165,8 +166,9 @@ class Router
 	async get_whale_buckets( params )
 	{
 		console.log( params );
-	    let api_data = await this.alert_api.get_data( params );
-		let buckets =  this.alert_api.bucket_data( api_data );
+	    // let api_data = await this.alert_api.get_data( params );
+	    let api_data = await this.db_handle.get_from_db( params );
+		let buckets =  this.alert_api.bucket_data_exchange( api_data );
 		if( !buckets ) return { statusCode: 500, body: 'Something wrong getting data buckets!' };
 
 		return this.respond( {body:JSON.stringify( buckets ), type:"json" } );
@@ -477,27 +479,34 @@ class DBStore{
 
 
 // Pav's Crypto Trade Bot
+// HFT (100ms ~ 60s) vs scalping (1min ~ 1h) vs day-trade ( 10min ~ 1day)
 
+
+// MACD RT color box buy/hold/sell
+// train xgboost on macd
+// load more back data and tune xgboost?
+
+
+// custom Binance order "preset"
 
 // ML -> given the current kline tuple,
 // 		predict it next closing price is up or down (and then repeat again if it will be above or below the fee profit level)
 
 
+// whale data should auto-refrehs as well!
 // node func to build the dataset using binance data
 // mlpack methods to do classification
+// initial load looks too slow -> smaller chunks + partial renders???
+// how many miliseconds to execute an order???? -> ~60ms for simplest API request
 
-// why the failures in lambda from db updates????
+
 // can we correlate flows and price data? -> correlation coeficient
-// setup prod stage + route 53
 // research ML training on this data?
-// auto-refresh evey 1min? + stripline
+// setup prod stage + route53
 // update details flows chart to match navigator selected range
-
-
+// get_db_bucket taking over 4.5sec!!!!
 // refactor data concordance so we do our chart and others in one model
-// update_db should be paging is result set is over 100!!!!!
 // add a smoke-screen test to at least go thorough all routes with default params and get 200 result
-// convert exposed methods to a single class instead - no need to expose them anymore
 // show data timerange - start + end times 
 // google analytics style usage tracking????
 // blue/green deployments -> how to repoint URL as part of deployment?
@@ -506,7 +515,13 @@ class DBStore{
 
 
 // DONE
+// RT chart updates 
+// RT updates / auto-refresh evey 1min? + stripline
+// MACD chart
+// update_db should be paging if result set is over 100!!!!! -> reduces time range so sohuld be fine
+// why the failures in lambda from db updates???? -> due to 3sec default execution limit
 // refactor into route-facing class + db_store
+// convert exposed methods to a single class instead - no need to expose them anymore
 // route to get config params from backend?!
 // poke Shiho? / alpha done
 // test on phone screen!!???

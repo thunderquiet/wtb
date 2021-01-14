@@ -147,6 +147,7 @@ resource "aws_lambda_function" "dashboard" {
     handler = "app.dashboard"
     runtime = "nodejs12.x"
     filename = "function.zip"
+    timeout = 30
     source_code_hash = "${base64sha256(filebase64("function.zip"))}"
     layers = [aws_lambda_layer_version.deps_layer.arn, aws_lambda_layer_version.static_layer.arn]
 	role = "${aws_iam_role.lambda_role.arn}"
