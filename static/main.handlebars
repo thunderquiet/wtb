@@ -11,15 +11,8 @@
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.js"></script>
   <script src="https://canvasjs.com/assets/script/canvasjs.stock.min.js"></script>
+  <!-- <link rel="stylesheet" href="style.css"> this can't load inside serverless -> either we inline or surve via backend route -->
 
-<!--   <script>
-    var context = {title: "My New Post", body: "This is my first post!"}
-    var result = Handlebars.templates.person(context);
-
-    $(function() {
-      $("#entry-template").html(result);
-    });
-  </script> -->
 
   <script type="text/javascript">
     dashboard_data = { sum:null, ticks:[] };
@@ -83,16 +76,40 @@
             if( loop_count == 0)
             {
               var ema = calculateEMA(chart.data["inflow"] , 7);
-              chart.chart.charts[3].addTo("data", {type: "line", name: "Inflows EMA", showInLegend: true,
+              chart.chart.charts[3].addTo("data", {type: "line", name: "Inflows EMA", showInLegend: true, axisYType: "secondary",
                                                     yValueFormatString: "#,###", dataPoints: ema, color:"green"});
               var ema = calculateEMA(chart.data["outflow"] , 7);
-              chart.chart.charts[3].addTo("data", {type: "line", name: "Outflows EMA", showInLegend: true,
+              chart.chart.charts[3].addTo("data", {type: "line", name: "Outflows EMA", showInLegend: true, axisYType: "secondary",
                                                     yValueFormatString: "#,###", dataPoints: ema, color:"red"});
 
               var ema = calculateEMA(chart.data["flow_vol"] , 7);
-              chart.chart.charts[3].addTo("data", {type: "line", name: "EMA", showInLegend: true,
+              chart.chart.charts[3].addTo("data", {type: "line", name: "EMA", showInLegend: true, axisYType: "secondary",
                                                     yValueFormatString: "#,###", dataPoints: ema, color:"blue"});
 
+
+
+              chart.chart.render();
+            }
+
+            // setup updates every 10sec
+            chart_mini_loop( chart, loop_count )
+          });
+        });
+    }
+
+    function chart_mini_loop( chart, loop_count )
+    {
+        // see if we RT toggle is set
+        let rt_enabled = $("#rt_updates_toggle")[0].checked;
+        if( ! rt_enabled )
+          $("#rt_updates_toggle_lbl").text( "Disabled" );
+        else
+        {
+          $("#rt_updates_toggle_lbl").text( "Enabled" );
+          update_mark_price( chart );
+          if( loop_count % 10 == 0 ) update_predictions(); // don't do this every time because scores don't change so much and its expensive
+          get_binane_data("10m").then( (latest_prices) => {
+            populate_binance_data(chart, latest_prices)
 
               var ema12 = calculateEMA(chart.data["price"], 12),
                   ema26 = calculateEMA(chart.data["price"], 26),
@@ -107,32 +124,45 @@
                 hist.push({x: ema12[i].x, y: score, color: score > 0 ? "green" : "red" });
               }
 
-              chart.chart.charts[2].addTo("data", {type: "line", name: "Signal", showInLegend: true, dataPoints: ema9});
-              chart.chart.charts[2].addTo("data", {type: "line", name: "MACD", showInLegend: true, dataPoints: macd});
-              chart.chart.charts[2].addTo("data", { name: "Hist", showInLegend: true, dataPoints: hist});
+              if( loop_count == 0 )
+              {
+                chart.chart.charts[2].addTo("data", {axisYType: "secondary", type: "line", name: "Signal", showInLegend: true, dataPoints: ema9});
+                chart.chart.charts[2].addTo("data", {axisYType: "secondary", type: "line", name: "MACD", showInLegend: true, dataPoints: macd});
+                chart.chart.charts[2].addTo("data", {axisYType: "secondary", name: "Hist", showInLegend: true, dataPoints: hist});
+              }
+              else
+              {
+                chart.chart.charts[2].set("data", [
+                  {axisYType: "secondary", type: "line", name: "Signal", showInLegend: true, dataPoints: ema9},
+                  {axisYType: "secondary", type: "line", name: "MACD", showInLegend: true, dataPoints: macd},
+                  {axisYType: "secondary", name: "Hist", showInLegend: true, dataPoints: hist}
+                  ]
+                );
+              }
 
-              chart.chart.render();
-            }
 
-            // setup updates every 10sec
-            chart_mini_loop( chart )
           });
-        });
-    }
+        }
 
-    function chart_mini_loop( chart )
-    {
-        update_mark_price( chart );
-        get_binane_data("10m").then( (latest_prices) => {
-          populate_binance_data(chart, latest_prices)
-        });
         setTimeout( () => {
-          chart_mini_loop( chart );
+          chart_mini_loop( chart, ++loop_count );
         }, 1000);
     }
 
-
-
+    function update_predictions()
+    {
+        fetch_url( "?cmd=get_price_pred" )
+        .then( (pred) => {
+          console.log( pred );
+          $("#model-label").html( pred.model + " (" + pred.ppv + ")" );
+          
+          let color_class = "green";
+          if ( pred.pred < 0.5 )
+            color_class = "red";
+          $("#pred-score").html( pred.pred + " (" + pred.metric + ")" );
+          $("#pred-score").addClass( color_class );
+        });
+    }
 
 
     // SMa doesn't seem to be working (at least not out ofthe box) because of too many 0s
@@ -194,7 +224,7 @@
             prefix: "BTC",
             stripLines: [{
               showOnTop: true,
-              lineDashType: "solid",
+              lineDashType: "dash",
               color: "blue",
               labelFontColor: "blue",
               labelFontSize: 14
@@ -343,6 +373,7 @@
 
         // chart_obj.chart.render();
         let price = mark_price_obj["markPrice"];
+        $("#live-price").html( Number(price).toFixed(1) );
         // console.log( "mark_price_obj:", mark_price_obj, price );
         // console.log( chart_obj.chart.charts[0].axisY2[0] );
         chart_obj.chart.charts[0].axisY2[0].options.stripLines[0].value = price;
@@ -380,11 +411,11 @@
     async function populate_binance_data( chart_obj, prices )
     {
         // update head queue with last ~10 entries of the price data using timestamp as the key
-        for(let entry of prices.slice(-10) )
-        {
-          let key = entry[0];
-          chart_obj.head_queue[key] = entry;
-        }
+        // for(let entry of prices.slice(-10) )
+        // {
+        //   let key = entry[0];
+        //   chart_obj.head_queue[key] = entry;
+        // }
         for (let entry of prices ) // the entries are in reverse chronological order
         {
           // same data again
@@ -436,6 +467,7 @@
         chart_obj.chart.render();
         chart_obj.chart.navigator.slider.minimum = new Date( chart_obj.head_time - (600 * 1000) );
         chart_obj.is_initial_render_done = true;
+        prices = []; //dealoc?
     }
 
     async function fetch_bucket_data( chart_obj )
@@ -599,6 +631,18 @@
 
 <h1>Whale Trade</h1>
 
+RT Refresh: <input type="checkbox" id="rt_updates_toggle" value="Checked" checked>
+<label id="rt_updates_toggle_lbl" for="rt_updates_toggle">Enabled</label><br>
+
+<h3 id="live-price"></h3>
+<div id="model-info" class="inline">
+  Model:
+    <div id="model-label" class="inline"></div>
+  <br/>
+  Predictions:
+    <div id="pred-score" class="inline"></div>
+</div>
+
 <div id="chartContainer" style="height: 1200px; width: 100%;"></div>
 
 <br/>
@@ -637,4 +681,23 @@ Exchange flows in the last 24 hours:
 
 
 </body>
+<style>
+
+  .inline {
+    display: inline-block;
+  }
+
+  body {
+    background: #EEF;
+  }
+
+  .green {
+    background: #080;
+  }
+
+  .red {
+    background: red;
+  }
+
+</style>
 </html>
